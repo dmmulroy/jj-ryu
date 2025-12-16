@@ -28,24 +28,32 @@ pub struct SubmissionResult {
 }
 
 /// Stack comment data embedded in PR comments
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StackCommentData {
-    version: u8,
-    stack: Vec<StackItem>,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StackCommentData {
+    /// Schema version
+    pub version: u8,
+    /// PRs in the stack, ordered root to leaf
+    pub stack: Vec<StackItem>,
 }
 
 /// A single item in the stack
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StackItem {
-    bookmark_name: String,
-    pr_url: String,
-    pr_number: u64,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StackItem {
+    /// Bookmark name for this PR
+    pub bookmark_name: String,
+    /// URL to the PR
+    pub pr_url: String,
+    /// PR number
+    pub pr_number: u64,
 }
 
-const COMMENT_DATA_PREFIX: &str = "<!--- JJ-RYU_STACK: ";
+/// Prefix for stack comment data
+pub const COMMENT_DATA_PREFIX: &str = "<!--- JJ-RYU_STACK: ";
 const COMMENT_DATA_PREFIX_OLD: &str = "<!--- JJ-STACK_INFO: ";
-const COMMENT_DATA_POSTFIX: &str = " --->";
-const STACK_COMMENT_THIS_PR: &str = "👈";
+/// Postfix for stack comment data
+pub const COMMENT_DATA_POSTFIX: &str = " --->";
+/// Marker for the current PR in stack comments
+pub const STACK_COMMENT_THIS_PR: &str = "👈";
 
 /// Execute a submission plan
 ///
@@ -243,7 +251,7 @@ async fn report_dry_run(plan: &SubmissionPlan, progress: &dyn ProgressCallback) 
 }
 
 /// Build stack comment data from the plan and PRs
-fn build_stack_comment_data(
+pub fn build_stack_comment_data(
     plan: &SubmissionPlan,
     bookmark_to_pr: &HashMap<String, PullRequest>,
 ) -> StackCommentData {
@@ -262,14 +270,8 @@ fn build_stack_comment_data(
     StackCommentData { version: 0, stack }
 }
 
-/// Create or update the stack comment on a PR
-async fn create_or_update_stack_comment(
-    platform: &dyn PlatformService,
-    data: &StackCommentData,
-    current_idx: usize,
-    pr_number: u64,
-) -> Result<()> {
-    // Build comment body
+/// Format the stack comment body for a PR
+pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Result<String> {
     let encoded_data = BASE64.encode(serde_json::to_string(data).map_err(|e| {
         Error::Internal(format!("Failed to serialize stack data: {e}"))
     })?);
@@ -290,6 +292,18 @@ async fn create_or_update_stack_comment(
         body,
         "\n---\nThis stack of pull requests is managed by [jj-ryu](https://github.com/dmmulroy/jj-ryu)."
     );
+
+    Ok(body)
+}
+
+/// Create or update the stack comment on a PR
+async fn create_or_update_stack_comment(
+    platform: &dyn PlatformService,
+    data: &StackCommentData,
+    current_idx: usize,
+    pr_number: u64,
+) -> Result<()> {
+    let body = format_stack_comment(data, current_idx)?;
 
     // Find existing comment by looking for our data prefix (check both old and new)
     let comments = platform.list_pr_comments(pr_number).await?;

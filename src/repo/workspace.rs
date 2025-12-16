@@ -546,6 +546,34 @@ impl JjWorkspace {
     }
 }
 
+/// Select a remote from a list of available remotes
+///
+/// - If `specified` is provided and exists, use it
+/// - If only one remote exists, use it
+/// - If multiple remotes exist, prefer "origin", else use first
+pub fn select_remote(remotes: &[GitRemote], specified: Option<&str>) -> Result<String> {
+    if remotes.is_empty() {
+        return Err(Error::NoSupportedRemotes);
+    }
+
+    if let Some(name) = specified {
+        if !remotes.iter().any(|r| r.name == name) {
+            return Err(Error::RemoteNotFound(name.to_string()));
+        }
+        return Ok(name.to_string());
+    }
+
+    if remotes.len() == 1 {
+        return Ok(remotes[0].name.clone());
+    }
+
+    // Multiple remotes: prefer "origin", else first
+    Ok(remotes
+        .iter()
+        .find(|r| r.name == "origin")
+        .map_or_else(|| remotes[0].name.clone(), |r| r.name.clone()))
+}
+
 /// Convert jj timestamp to chrono `DateTime`
 fn timestamp_to_datetime(ts: &Timestamp) -> DateTime<Utc> {
     Utc.timestamp_millis_opt(ts.timestamp.0)

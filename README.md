@@ -24,7 +24,7 @@ Each bookmark becomes a PR. Each PR targets the previous bookmark (or trunk). Wh
 npm install -g jj-ryu
 
 # or with npx
-npx ryu
+npx jj-ryu
 
 # cargo
 cargo install jj-ryu

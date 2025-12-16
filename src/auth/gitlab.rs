@@ -108,7 +108,12 @@ struct GitLabUser {
 pub async fn test_gitlab_auth(config: &GitLabAuthConfig) -> Result<String> {
     let url = format!("https://{}/api/v4/user", config.host);
 
-    let user: GitLabUser = Client::new()
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| Error::GitLabApi(format!("failed to create HTTP client: {e}")))?;
+
+    let user: GitLabUser = client
         .get(&url)
         .header("PRIVATE-TOKEN", &config.token)
         .send()

@@ -32,6 +32,18 @@ struct MrNote {
     system: bool,
 }
 
+impl From<MergeRequest> for PullRequest {
+    fn from(mr: MergeRequest) -> Self {
+        Self {
+            number: mr.iid,
+            html_url: mr.web_url,
+            base_ref: mr.target_branch,
+            head_ref: mr.source_branch,
+            title: mr.title,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct CreateMrPayload {
     source_branch: String,
@@ -49,31 +61,33 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 impl GitLabService {
     /// Create a new GitLab service
-    pub fn new(token: String, owner: String, repo: String, host: Option<String>) -> Self {
+    pub fn new(token: String, owner: String, repo: String, host: Option<String>) -> Result<Self> {
         let host = host.unwrap_or_else(|| "gitlab.com".to_string());
         let project_path = format!("{owner}/{repo}");
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .map_err(|e| Error::GitLabApi(format!("failed to create HTTP client: {e}")))?;
 
-        Self {
+        let config_host = if host == "gitlab.com" {
+            None
+        } else {
+            Some(host.clone())
+        };
+
+        Ok(Self {
             client,
             token,
-            host: host.clone(),
+            host,
             config: PlatformConfig {
                 platform: Platform::GitLab,
                 owner,
                 repo,
-                host: if host == "gitlab.com" {
-                    None
-                } else {
-                    Some(host)
-                },
+                host: config_host,
             },
             project_path,
-        }
+        })
     }
 
     fn api_url(&self, path: &str) -> String {
@@ -100,16 +114,12 @@ impl PlatformService for GitLabService {
             .query(&[("source_branch", head_branch), ("state", "opened")])
             .send()
             .await?
+            .error_for_status()
+            .map_err(|e| Error::GitLabApi(e.to_string()))?
             .json()
             .await?;
 
-        Ok(mrs.first().map(|mr| PullRequest {
-            number: mr.iid,
-            html_url: mr.web_url.clone(),
-            base_ref: mr.target_branch.clone(),
-            head_ref: mr.source_branch.clone(),
-            title: mr.title.clone(),
-        }))
+        Ok(mrs.into_iter().next().map(Into::into))
     }
 
     async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
@@ -136,13 +146,7 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
-        Ok(PullRequest {
-            number: mr.iid,
-            html_url: mr.web_url,
-            base_ref: mr.target_branch,
-            head_ref: mr.source_branch,
-            title: mr.title,
-        })
+        Ok(mr.into())
     }
 
     async fn update_pr_base(&self, pr_number: u64, new_base: &str) -> Result<PullRequest> {
@@ -168,13 +172,7 @@ impl PlatformService for GitLabService {
             .json()
             .await?;
 
-        Ok(PullRequest {
-            number: mr.iid,
-            html_url: mr.web_url,
-            base_ref: mr.target_branch,
-            head_ref: mr.source_branch,
-            title: mr.title,
-        })
+        Ok(mr.into())
     }
 
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>> {
@@ -190,6 +188,8 @@ impl PlatformService for GitLabService {
             .header("PRIVATE-TOKEN", &self.token)
             .send()
             .await?
+            .error_for_status()
+            .map_err(|e| Error::GitLabApi(e.to_string()))?
             .json()
             .await?;
 

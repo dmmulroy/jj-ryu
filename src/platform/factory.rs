@@ -30,7 +30,7 @@ pub async fn create_platform_service(
                 config.owner.clone(),
                 config.repo.clone(),
                 Some(auth.host),
-            )))
+            )?))
         }
     }
 }

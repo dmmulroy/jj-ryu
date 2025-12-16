@@ -47,6 +47,14 @@ tracing = "0.1"
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.13"
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+insta = { version = "1", features = ["yaml"] }
+insta-cmd = "0.6"
+serial_test = "3"
+mockito = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [lints.rust]
 unsafe_code = "deny"

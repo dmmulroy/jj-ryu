@@ -4,4 +4,4 @@
 
 mod workspace;
 
-pub use workspace::JjWorkspace;
+pub use workspace::{select_remote, JjWorkspace};

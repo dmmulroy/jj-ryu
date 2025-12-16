@@ -4,10 +4,12 @@
 
 mod analyze;
 mod auth;
+mod progress;
 mod submit;
 mod sync;
 
 pub use analyze::run_analyze;
 pub use auth::run_auth;
+pub use progress::CliProgress;
 pub use submit::run_submit;
 pub use sync::run_sync;

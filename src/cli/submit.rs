@@ -1,60 +1,12 @@
 //! Submit command - submit a bookmark stack as PRs
 
+use crate::cli::CliProgress;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{create_platform_service, parse_repo_info};
-use jj_ryu::repo::JjWorkspace;
-use jj_ryu::submit::{
-    analyze_submission, create_submission_plan, execute_submission, Phase, ProgressCallback,
-    PushStatus,
-};
-use jj_ryu::types::PullRequest;
-use async_trait::async_trait;
+use jj_ryu::repo::{select_remote, JjWorkspace};
+use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
 use std::path::Path;
-
-/// CLI progress callback that prints to stdout
-struct CliProgress;
-
-#[async_trait]
-impl ProgressCallback for CliProgress {
-    async fn on_phase(&self, phase: Phase) {
-        match phase {
-            Phase::Analyzing => println!("Analyzing..."),
-            Phase::Planning => println!("Planning..."),
-            Phase::Pushing => println!("Pushing bookmarks..."),
-            Phase::CreatingPrs => println!("Creating PRs..."),
-            Phase::UpdatingPrs => println!("Updating PRs..."),
-            Phase::AddingComments => println!("Updating stack comments..."),
-            Phase::Complete => println!("Done!"),
-        }
-    }
-
-    async fn on_bookmark_push(&self, bookmark: &str, status: PushStatus) {
-        match status {
-            PushStatus::Started => println!("  Pushing {bookmark}..."),
-            PushStatus::Success => println!("  ✓ Pushed {bookmark}"),
-            PushStatus::AlreadySynced => println!("  - {bookmark} already synced"),
-            PushStatus::Failed(msg) => println!("  ✗ Failed to push {bookmark}: {msg}"),
-        }
-    }
-
-    async fn on_pr_created(&self, bookmark: &str, pr: &PullRequest) {
-        println!("  ✓ Created PR #{} for {}", pr.number, bookmark);
-        println!("    {}", pr.html_url);
-    }
-
-    async fn on_pr_updated(&self, bookmark: &str, pr: &PullRequest) {
-        println!("  ✓ Updated PR #{} for {}", pr.number, bookmark);
-    }
-
-    async fn on_error(&self, error: &Error) {
-        eprintln!("Error: {error}");
-    }
-
-    async fn on_message(&self, message: &str) {
-        println!("{message}");
-    }
-}
 
 /// Run the submit command
 pub async fn run_submit(
@@ -68,26 +20,7 @@ pub async fn run_submit(
 
     // Get remotes and select one
     let remotes = workspace.git_remotes()?;
-    if remotes.is_empty() {
-        return Err(Error::NoSupportedRemotes);
-    }
-
-    let remote_name = if let Some(name) = remote {
-        // User specified a remote
-        if !remotes.iter().any(|r| r.name == name) {
-            return Err(Error::RemoteNotFound(name.to_string()));
-        }
-        name.to_string()
-    } else if remotes.len() == 1 {
-        // Only one remote, use it
-        remotes[0].name.clone()
-    } else {
-        // Default to "origin" if exists, otherwise first
-        remotes
-            .iter()
-            .find(|r| r.name == "origin")
-            .map_or_else(|| remotes[0].name.clone(), |r| r.name.clone())
-    };
+    let remote_name = select_remote(&remotes, remote)?;
 
     // Detect platform from remote URL
     let remote_info = remotes
@@ -140,7 +73,7 @@ pub async fn run_submit(
         .await?;
 
     // Execute plan
-    let progress = CliProgress;
+    let progress = CliProgress::verbose();
     let result = execute_submission(&plan, &mut workspace, platform.as_ref(), &progress, dry_run)
         .await?;
 

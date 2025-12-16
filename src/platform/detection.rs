@@ -4,6 +4,15 @@ use crate::error::{Error, Result};
 use crate::types::{Platform, PlatformConfig};
 use regex::Regex;
 use std::env;
+use std::sync::LazyLock;
+
+/// Regex for SSH URLs: git@host:owner/repo.git
+static RE_SSH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"git@[^:]+:(.+?)(?:\.git)?$").unwrap());
+
+/// Regex for HTTPS URLs: https://host/owner/repo.git
+static RE_HTTPS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https?://[^/]+/(.+?)(?:\.git)?$").unwrap());
 
 /// Detect platform (GitHub or GitLab) from a remote URL
 pub fn detect_platform(url: &str) -> Option<Platform> {
@@ -33,17 +42,15 @@ pub fn detect_platform(url: &str) -> Option<Platform> {
 
 /// Parse repository info (owner/repo) from a remote URL
 pub fn parse_repo_info(url: &str) -> Result<PlatformConfig> {
+    // Normalize: strip trailing slashes
+    let url = url.trim_end_matches('/');
+
     let platform = detect_platform(url).ok_or(Error::NoSupportedRemotes)?;
     let hostname = extract_hostname(url);
 
-    // SSH format: git@host:owner/repo.git
-    // HTTPS format: https://host/owner/repo.git
-    let re_ssh = Regex::new(r"git@[^:]+:(.+?)(?:\.git)?$").unwrap();
-    let re_https = Regex::new(r"https?://[^/]+/(.+?)(?:\.git)?$").unwrap();
-
-    let path = re_ssh
+    let path = RE_SSH
         .captures(url)
-        .or_else(|| re_https.captures(url))
+        .or_else(|| RE_HTTPS.captures(url))
         .and_then(|c| c.get(1))
         .map(|m| m.as_str())
         .ok_or_else(|| Error::Parse(format!("cannot parse remote URL: {url}")))?;

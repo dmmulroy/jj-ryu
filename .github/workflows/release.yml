@@ -14,7 +14,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -202,7 +206,7 @@ jobs:
         run: |
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl win32-arm64 win32-x64; do
             echo "Publishing @jj-ryu/$platform..."
-            npm publish npm/$platform --access public --provenance
+            npm publish ./npm/$platform --access public --provenance
           done
 
       - name: Publish main package
@@ -210,7 +214,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "Publishing jj-ryu..."
-          npm publish npm/jj-ryu --access public --provenance
+          npm publish ./npm/jj-ryu --access public --provenance
 
   # Publish to crates.io
   publish-crates:
@@ -224,4 +228,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish to crates.io
-        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || {
+            if cargo search jj-ryu --limit 1 | grep -q "^jj-ryu = \"${GITHUB_REF#refs/tags/v}\""; then
+              echo "Version already published, skipping"
+            else
+              exit 1
+            fi
+          }

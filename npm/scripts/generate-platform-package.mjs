@@ -30,7 +30,7 @@ if (!config) {
 }
 
 const packageJson = {
-  name: `@jj-ryu/${platform}`,
+  name: `jj-ryu-${platform}`,
   version,
   description: `ryu binary for ${config.os} ${config.cpu}${config.libc ? ` (${config.libc})` : ""}`,
   repository: {

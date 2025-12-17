@@ -18,14 +18,14 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@jj-ryu/darwin-arm64": "0.1.0",
-    "@jj-ryu/darwin-x64": "0.1.0",
-    "@jj-ryu/linux-arm64": "0.1.0",
-    "@jj-ryu/linux-x64": "0.1.0",
-    "@jj-ryu/linux-arm64-musl": "0.1.0",
-    "@jj-ryu/linux-x64-musl": "0.1.0",
-    "@jj-ryu/win32-arm64": "0.1.0",
-    "@jj-ryu/win32-x64": "0.1.0"
+    "jj-ryu-darwin-arm64": "0.1.0",
+    "jj-ryu-darwin-x64": "0.1.0",
+    "jj-ryu-linux-arm64": "0.1.0",
+    "jj-ryu-linux-x64": "0.1.0",
+    "jj-ryu-linux-arm64-musl": "0.1.0",
+    "jj-ryu-linux-x64-musl": "0.1.0",
+    "jj-ryu-win32-arm64": "0.1.0",
+    "jj-ryu-win32-x64": "0.1.0"
   },
   "publishConfig": {
     "access": "public",

@@ -205,8 +205,14 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl win32-arm64 win32-x64; do
-            echo "Publishing @jj-ryu/$platform..."
-            npm publish ./npm/$platform --access public --provenance
+            echo "Publishing jj-ryu-$platform..."
+            npm publish ./npm/$platform --access public --provenance || {
+              if npm view "jj-ryu-$platform@${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+                echo "Version already published, skipping"
+              else
+                exit 1
+              fi
+            }
           done
 
       - name: Publish main package
@@ -214,7 +220,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "Publishing jj-ryu..."
-          npm publish ./npm/jj-ryu --access public --provenance
+          npm publish ./npm/jj-ryu --access public --provenance || {
+            if npm view "jj-ryu@${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+              echo "Version already published, skipping"
+            else
+              exit 1
+            fi
+          }
 
   # Publish to crates.io
   publish-crates:
@@ -228,11 +240,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || {
-            if cargo search jj-ryu --limit 1 | grep -q "^jj-ryu = \"${GITHUB_REF#refs/tags/v}\""; then
-              echo "Version already published, skipping"
-            else
-              exit 1
-            fi
-          }
+          set +e
+          OUTPUT=$(cargo publish 2>&1)
+          EXIT_CODE=$?
+          set -e
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "Published successfully"
+          elif echo "$OUTPUT" | grep -q "already exists"; then
+            echo "Version already published, skipping"
+          else
+            echo "$OUTPUT"
+            exit $EXIT_CODE
+          fi

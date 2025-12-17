@@ -280,8 +280,14 @@ impl E2ERepo {
     fn build_stack(&mut self, commits: &[(&str, &str)]) -> Vec<String> {
         let mut bookmarks = vec![];
         for (bookmark, message) in commits {
-            assert!(self.create_commit(message), "Failed to create commit: {message}");
-            assert!(self.create_bookmark(bookmark), "Failed to create bookmark: {bookmark}");
+            assert!(
+                self.create_commit(message),
+                "Failed to create commit: {message}"
+            );
+            assert!(
+                self.create_bookmark(bookmark),
+                "Failed to create bookmark: {bookmark}"
+            );
             bookmarks.push(format!("{}-{bookmark}", self.prefix));
         }
         bookmarks
@@ -921,7 +927,8 @@ async fn test_deep_stack() {
     // Verify all 5 PRs created with correct chaining
     let mut prev_bookmark = "main".to_string();
     for bookmark in &bookmarks {
-        let pr_num = find_pr_number(bookmark).unwrap_or_else(|| panic!("PR for {bookmark} not found"));
+        let pr_num =
+            find_pr_number(bookmark).unwrap_or_else(|| panic!("PR for {bookmark} not found"));
         let base = get_pr_base(pr_num).expect("get base");
         assert_eq!(base, prev_bookmark, "Wrong base for {bookmark}");
         prev_bookmark = bookmark.clone();

@@ -57,8 +57,12 @@ impl TempJjRepo {
 
     /// Open as `JjWorkspace` for use with jj-ryu
     pub fn workspace(&self) -> JjWorkspace {
-        JjWorkspace::open(self.dir.path())
-            .unwrap_or_else(|e| panic!("failed to open workspace at {}: {e}", self.dir.path().display()))
+        JjWorkspace::open(self.dir.path()).unwrap_or_else(|e| {
+            panic!(
+                "failed to open workspace at {}: {e}",
+                self.dir.path().display()
+            )
+        })
     }
 
     /// Create a new commit with the given message

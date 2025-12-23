@@ -37,6 +37,7 @@ impl ProgressCallback for CliProgress {
                 Phase::Pushing => println!("Pushing bookmarks..."),
                 Phase::CreatingPrs => println!("Creating PRs..."),
                 Phase::UpdatingPrs => println!("Updating PRs..."),
+                Phase::PublishingPrs => println!("Publishing draft PRs..."),
                 Phase::AddingComments => println!("Updating stack comments..."),
                 Phase::Complete => println!("Done!"),
             }
@@ -45,6 +46,7 @@ impl ProgressCallback for CliProgress {
                 Phase::Pushing => println!("  Pushing bookmarks..."),
                 Phase::CreatingPrs => println!("  Creating PRs..."),
                 Phase::UpdatingPrs => println!("  Updating PRs..."),
+                Phase::PublishingPrs => println!("  Publishing drafts..."),
                 Phase::AddingComments => println!("  Updating comments..."),
                 _ => {}
             }

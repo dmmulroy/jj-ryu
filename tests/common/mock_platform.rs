@@ -190,7 +190,13 @@ impl PlatformService for MockPlatformService {
         Ok(responses.get(head_branch).cloned().flatten())
     }
 
-    async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
+    async fn create_pr_with_options(
+        &self,
+        head: &str,
+        base: &str,
+        title: &str,
+        draft: bool,
+    ) -> Result<PullRequest> {
         self.create_pr_calls.lock().unwrap().push(CreatePrCall {
             head: head.to_string(),
             base: base.to_string(),
@@ -209,6 +215,8 @@ impl PlatformService for MockPlatformService {
             base_ref: base.to_string(),
             head_ref: head.to_string(),
             title: title.to_string(),
+            node_id: Some(format!("PR_node_{number}")),
+            is_draft: draft,
         };
         Ok(pr)
     }
@@ -230,6 +238,8 @@ impl PlatformService for MockPlatformService {
             base_ref: new_base.to_string(),
             head_ref: "updated".to_string(),
             title: "Updated PR".to_string(),
+            node_id: Some(format!("PR_node_{pr_number}")),
+            is_draft: false,
         })
     }
 
@@ -257,6 +267,18 @@ impl PlatformService for MockPlatformService {
         _body: &str,
     ) -> Result<()> {
         Ok(())
+    }
+
+    async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest> {
+        Ok(PullRequest {
+            number: pr_number,
+            html_url: format!("https://github.com/test/repo/pull/{pr_number}"),
+            base_ref: "main".to_string(),
+            head_ref: "published".to_string(),
+            title: "Published PR".to_string(),
+            node_id: Some(format!("PR_node_{pr_number}")),
+            is_draft: false, // After publishing, is_draft is false
+        })
     }
 
     fn config(&self) -> &PlatformConfig {

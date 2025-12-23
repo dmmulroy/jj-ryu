@@ -18,6 +18,8 @@ pub struct PrToCreate {
     pub base_branch: String,
     /// Generated PR title
     pub title: String,
+    /// Whether to create as draft
+    pub draft: bool,
 }
 
 /// Information about a PR that needs its base updated
@@ -44,6 +46,8 @@ pub struct SubmissionPlan {
     pub prs_to_create: Vec<PrToCreate>,
     /// Bookmarks with existing PRs that need base updated
     pub prs_to_update_base: Vec<PrBaseUpdate>,
+    /// Draft PRs that should be published
+    pub prs_to_publish: Vec<PullRequest>,
     /// Existing PRs by bookmark name
     pub existing_prs: HashMap<String, PullRequest>,
     /// Remote name to push to
@@ -108,6 +112,7 @@ pub async fn create_submission_plan(
                 bookmark: (*bookmark).clone(),
                 base_branch,
                 title,
+                draft: false,
             });
         }
     }
@@ -117,6 +122,7 @@ pub async fn create_submission_plan(
         bookmarks_needing_push,
         prs_to_create,
         prs_to_update_base,
+        prs_to_publish: Vec::new(),
         existing_prs,
         remote: remote.to_string(),
         default_branch: default_branch.to_string(),
@@ -159,11 +165,13 @@ mod tests {
             bookmark: make_bookmark("feat-a", false, false),
             base_branch: "main".to_string(),
             title: "Add feature A".to_string(),
+            draft: false,
         };
 
         assert_eq!(pr_create.bookmark.name, "feat-a");
         assert_eq!(pr_create.base_branch, "main");
         assert_eq!(pr_create.title, "Add feature A");
+        assert!(!pr_create.draft);
     }
 
     #[test]
@@ -178,8 +186,10 @@ mod tests {
                 bookmark: make_bookmark("feat-a", false, false),
                 base_branch: "main".to_string(),
                 title: "Test".to_string(),
+                draft: false,
             }],
             prs_to_update_base: vec![],
+            prs_to_publish: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),
@@ -189,5 +199,6 @@ mod tests {
         assert_eq!(plan.bookmarks_needing_push.len(), 1);
         assert_eq!(plan.prs_to_create.len(), 1);
         assert!(plan.prs_to_update_base.is_empty());
+        assert!(plan.prs_to_publish.is_empty());
     }
 }

@@ -1,15 +1,30 @@
 //! Sync command - sync all stacks with remote
 
 use crate::cli::CliProgress;
+use dialoguer::Confirm;
 use jj_ryu::error::{Error, Result};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{create_platform_service, parse_repo_info};
 use jj_ryu::repo::{JjWorkspace, select_remote};
-use jj_ryu::submit::{analyze_submission, create_submission_plan, execute_submission};
+use jj_ryu::submit::{
+    SubmissionPlan, analyze_submission, create_submission_plan, execute_submission,
+};
+use jj_ryu::types::BranchStack;
 use std::path::Path;
 
+/// Options for the sync command
+#[derive(Debug, Clone, Default)]
+pub struct SyncOptions<'a> {
+    /// Dry run - show what would be done without making changes
+    pub dry_run: bool,
+    /// Preview plan and prompt for confirmation before executing
+    pub confirm: bool,
+    /// Only sync the stack containing this bookmark
+    pub stack: Option<&'a str>,
+}
+
 /// Run the sync command
-pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Result<()> {
+pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_>) -> Result<()> {
     // Open workspace
     let mut workspace = JjWorkspace::open(path)?;
 
@@ -29,7 +44,7 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
     let platform = create_platform_service(&platform_config).await?;
 
     // Fetch from remote
-    if !dry_run {
+    if !options.dry_run {
         println!("Fetching from {remote_name}...");
         workspace.git_fetch(&remote_name)?;
     }
@@ -42,15 +57,40 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
         return Ok(());
     }
 
+    // Filter stacks if --stack is specified
+    let stacks_to_sync: Vec<&BranchStack> = if let Some(stack_bookmark) = options.stack {
+        // Find the stack containing this bookmark
+        let matching_stack = graph.stacks.iter().find(|stack| {
+            stack
+                .segments
+                .iter()
+                .any(|seg| seg.bookmarks.iter().any(|b| b.name == stack_bookmark))
+        });
+
+        match matching_stack {
+            Some(stack) => vec![stack],
+            None => {
+                return Err(Error::BookmarkNotFound(format!(
+                    "Bookmark '{stack_bookmark}' not found in any stack"
+                )));
+            }
+        }
+    } else {
+        graph.stacks.iter().collect()
+    };
+
+    if stacks_to_sync.is_empty() {
+        println!("No stacks to sync");
+        return Ok(());
+    }
+
     let default_branch = workspace.default_branch()?;
     let progress = CliProgress::compact();
 
-    // Sync each stack
-    let mut total_pushed = 0;
-    let mut total_created = 0;
-    let mut total_updated = 0;
+    // Build plans for all stacks first (for confirmation)
+    let mut stack_plans: Vec<(&str, SubmissionPlan)> = Vec::new();
 
-    for stack in &graph.stacks {
+    for stack in &stacks_to_sync {
         if stack.segments.is_empty() {
             continue;
         }
@@ -58,16 +98,45 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
         // Get the leaf bookmark (last segment)
         let leaf_bookmark = &stack.segments.last().unwrap().bookmarks[0].name;
 
-        println!("Syncing stack: {leaf_bookmark}");
-
         let analysis = analyze_submission(&graph, leaf_bookmark)?;
         let plan =
             create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch)
                 .await?;
 
-        let result =
-            execute_submission(&plan, &mut workspace, platform.as_ref(), &progress, dry_run)
-                .await?;
+        stack_plans.push((leaf_bookmark, plan));
+    }
+
+    // Show confirmation if requested
+    if options.confirm && !options.dry_run {
+        print_sync_preview(&stack_plans);
+        if !Confirm::new()
+            .with_prompt("Proceed with sync?")
+            .default(true)
+            .interact()
+            .map_err(|e| Error::Internal(format!("Failed to read confirmation: {e}")))?
+        {
+            println!("Aborted");
+            return Ok(());
+        }
+        println!();
+    }
+
+    // Sync each stack
+    let mut total_pushed = 0;
+    let mut total_created = 0;
+    let mut total_updated = 0;
+
+    for (leaf_bookmark, plan) in stack_plans {
+        println!("Syncing stack: {leaf_bookmark}");
+
+        let result = execute_submission(
+            &plan,
+            &mut workspace,
+            platform.as_ref(),
+            &progress,
+            options.dry_run,
+        )
+        .await?;
 
         total_pushed += result.pushed_bookmarks.len();
         total_created += result.created_prs.len();
@@ -76,7 +145,7 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
 
     // Summary
     println!();
-    if dry_run {
+    if options.dry_run {
         println!("Dry run complete");
     } else {
         println!(
@@ -85,4 +154,47 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, dry_run: bool) -> Resul
     }
 
     Ok(())
+}
+
+/// Print sync preview for --confirm
+fn print_sync_preview(stack_plans: &[(&str, SubmissionPlan)]) {
+    println!("Sync plan:");
+    println!();
+
+    for (leaf_bookmark, plan) in stack_plans {
+        println!("Stack: {leaf_bookmark}");
+
+        if !plan.bookmarks_needing_push.is_empty() {
+            println!("  Push:");
+            for bm in &plan.bookmarks_needing_push {
+                println!("    - {}", bm.name);
+            }
+        }
+
+        if !plan.prs_to_create.is_empty() {
+            println!("  Create PRs:");
+            for pr in &plan.prs_to_create {
+                println!("    - {} → {}", pr.bookmark.name, pr.base_branch);
+            }
+        }
+
+        if !plan.prs_to_update_base.is_empty() {
+            println!("  Update PR bases:");
+            for update in &plan.prs_to_update_base {
+                println!(
+                    "    - {} {} → {}",
+                    update.bookmark.name, update.current_base, update.expected_base
+                );
+            }
+        }
+
+        if plan.bookmarks_needing_push.is_empty()
+            && plan.prs_to_create.is_empty()
+            && plan.prs_to_update_base.is_empty()
+        {
+            println!("  Already in sync");
+        }
+
+        println!();
+    }
 }

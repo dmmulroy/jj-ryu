@@ -528,6 +528,8 @@ mod stack_comment_test {
             base_ref: "main".to_string(),
             head_ref: bookmark.to_string(),
             title: format!("PR for {bookmark}"),
+            node_id: Some(format!("PR_node_{number}")),
+            is_draft: false,
         }
     }
 
@@ -551,6 +553,7 @@ mod stack_comment_test {
             bookmarks_needing_push: vec![],
             prs_to_create: vec![],
             prs_to_update_base: vec![],
+            prs_to_publish: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),
@@ -589,6 +592,7 @@ mod stack_comment_test {
             bookmarks_needing_push: vec![],
             prs_to_create: vec![],
             prs_to_update_base: vec![],
+            prs_to_publish: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),

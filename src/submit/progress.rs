@@ -20,6 +20,8 @@ pub enum Phase {
     CreatingPrs,
     /// Updating existing PR base branches
     UpdatingPrs,
+    /// Publishing draft PRs
+    PublishingPrs,
     /// Adding/updating stack comments
     AddingComments,
     /// Submission complete

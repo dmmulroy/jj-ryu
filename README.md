@@ -117,7 +117,7 @@ Each PR gets a comment showing the full stack:
 
 ```
 * #13
-* **#12 <--**
+* **#12 👈**
 * #11
 
 ---

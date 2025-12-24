@@ -13,6 +13,20 @@ use jj_ryu::submit::{
 use jj_ryu::types::ChangeGraph;
 use std::path::Path;
 
+/// Scope of bookmark submission (mutually exclusive options)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SubmitScope {
+    /// Default: submit from trunk to target bookmark
+    #[default]
+    Default,
+    /// Submit only up to (and including) a specified bookmark
+    Upto,
+    /// Submit only the target bookmark (parent must have PR)
+    Only,
+    /// Include all descendants (upstack) in submission
+    Stack,
+}
+
 /// Options for the submit command
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_excessive_bools)]
@@ -21,14 +35,12 @@ pub struct SubmitOptions<'a> {
     pub dry_run: bool,
     /// Preview plan and prompt for confirmation before executing
     pub confirm: bool,
-    /// Submit only up to (and including) this bookmark
-    pub upto: Option<&'a str>,
-    /// Submit only this bookmark (parent must already have a PR)
-    pub only: bool,
+    /// Scope of submission (default, upto, only, or stack)
+    pub scope: SubmitScope,
+    /// Bookmark name for --upto (only valid when scope == Upto)
+    pub upto_bookmark: Option<&'a str>,
     /// Only update existing PRs, don't create new ones
     pub update_only: bool,
-    /// Include all descendants (upstack) in submission
-    pub stack: bool,
     /// Create new PRs as drafts
     pub draft: bool,
     /// Publish any draft PRs
@@ -44,12 +56,7 @@ pub async fn run_submit(
     remote: Option<&str>,
     options: SubmitOptions<'_>,
 ) -> Result<()> {
-    // Validate conflicting options
-    if options.only && options.upto.is_some() {
-        return Err(Error::InvalidArgument(
-            "Cannot use --only and --upto together".to_string(),
-        ));
-    }
+    // Validate conflicting options (scope conflicts handled by clap arg groups)
     if options.draft && options.publish {
         return Err(Error::InvalidArgument(
             "Cannot use --draft and --publish together".to_string(),
@@ -185,71 +192,77 @@ async fn build_analysis(
     // Start with standard analysis
     let mut analysis = analyze_submission(graph, bookmark)?;
 
-    // Handle --upto: truncate at specified bookmark
-    if let Some(upto_bookmark) = options.upto {
-        // Validate upto bookmark exists in the analysis
-        let upto_idx = analysis
-            .segments
-            .iter()
-            .position(|s| s.bookmark.name == upto_bookmark);
+    match options.scope {
+        SubmitScope::Default => {}
 
-        match upto_idx {
-            Some(idx) => {
-                analysis.segments.truncate(idx + 1);
-                analysis.target_bookmark = upto_bookmark.to_string();
-            }
-            None => {
-                return Err(Error::InvalidArgument(format!(
-                    "Bookmark '{upto_bookmark}' not found in stack ancestors of '{bookmark}'"
-                )));
-            }
-        }
-    }
+        SubmitScope::Upto => {
+            // Handle --upto: truncate at specified bookmark
+            let upto_bookmark = options
+                .upto_bookmark
+                .ok_or_else(|| Error::Internal("--upto requires a bookmark name".to_string()))?;
 
-    // Handle --only: single bookmark submission
-    if options.only {
-        // Find the target segment
-        let target_idx = analysis
-            .segments
-            .iter()
-            .position(|s| s.bookmark.name == bookmark);
+            let upto_idx = analysis
+                .segments
+                .iter()
+                .position(|s| s.bookmark.name == upto_bookmark);
 
-        let target_idx = target_idx.ok_or_else(|| {
-            Error::Internal(format!(
-                "Target bookmark '{bookmark}' not found in analysis"
-            ))
-        })?;
-
-        // If not the first segment, verify parent has a PR
-        if target_idx > 0 {
-            let parent_bookmark = &analysis.segments[target_idx - 1].bookmark.name;
-            let parent_pr = platform.find_existing_pr(parent_bookmark).await?;
-
-            if parent_pr.is_none() {
-                return Err(Error::InvalidArgument(format!(
-                    "Cannot use --only: parent bookmark '{parent_bookmark}' has no PR. Use --upto instead."
-                )));
+            match upto_idx {
+                Some(idx) => {
+                    analysis.segments.truncate(idx + 1);
+                    analysis.target_bookmark = upto_bookmark.to_string();
+                }
+                None => {
+                    return Err(Error::InvalidArgument(format!(
+                        "Bookmark '{upto_bookmark}' not found in stack ancestors of '{bookmark}'"
+                    )));
+                }
             }
         }
 
-        // Keep only the target segment
-        analysis.segments = vec![analysis.segments.remove(target_idx)];
-    }
+        SubmitScope::Only => {
+            // Handle --only: single bookmark submission
+            let target_idx = analysis
+                .segments
+                .iter()
+                .position(|s| s.bookmark.name == bookmark);
 
-    // Handle --stack (upstack): include descendants
-    if options.stack {
-        let descendants = find_all_descendants(graph, bookmark);
-        for descendant_name in descendants {
-            // Get analysis for each descendant and merge segments
-            if let Ok(desc_analysis) = analyze_submission(graph, &descendant_name) {
-                // Add segments that aren't already in our analysis
-                for segment in desc_analysis.segments {
-                    if !analysis
-                        .segments
-                        .iter()
-                        .any(|s| s.bookmark.name == segment.bookmark.name)
-                    {
-                        analysis.segments.push(segment);
+            let target_idx = target_idx.ok_or_else(|| {
+                Error::Internal(format!(
+                    "Target bookmark '{bookmark}' not found in analysis"
+                ))
+            })?;
+
+            // If not the first segment, verify parent has a PR
+            if target_idx > 0 {
+                let parent_bookmark = &analysis.segments[target_idx - 1].bookmark.name;
+                let parent_pr = platform.find_existing_pr(parent_bookmark).await?;
+
+                if parent_pr.is_none() {
+                    return Err(Error::InvalidArgument(format!(
+                        "Cannot use --only: parent bookmark '{parent_bookmark}' has no PR. Use --upto instead."
+                    )));
+                }
+            }
+
+            // Keep only the target segment
+            analysis.segments = vec![analysis.segments.remove(target_idx)];
+        }
+
+        SubmitScope::Stack => {
+            // Handle --stack (upstack): include descendants
+            let descendants = find_all_descendants(graph, bookmark);
+            for descendant_name in descendants {
+                // Get analysis for each descendant and merge segments
+                if let Ok(desc_analysis) = analyze_submission(graph, &descendant_name) {
+                    // Add segments that aren't already in our analysis
+                    for segment in desc_analysis.segments {
+                        if !analysis
+                            .segments
+                            .iter()
+                            .any(|s| s.bookmark.name == segment.bookmark.name)
+                        {
+                            analysis.segments.push(segment);
+                        }
                     }
                 }
             }
@@ -260,12 +273,17 @@ async fn build_analysis(
 }
 
 /// Find all descendant bookmarks (across all branching stacks)
+///
+/// Note: This function operates on linear stacks only. The graph builder
+/// excludes merge commits, so diamond topologies are not represented.
 fn find_all_descendants(graph: &ChangeGraph, bookmark: &str) -> Vec<String> {
-    let mut descendants = Vec::new();
+    use std::collections::HashSet;
+
+    let mut seen = HashSet::new();
 
     // Get the change_id for this bookmark
     let Some(bookmark_change_id) = graph.bookmark_to_change_id.get(bookmark) else {
-        return descendants;
+        return Vec::new();
     };
 
     // For each stack, check if our bookmark appears in the path
@@ -285,15 +303,15 @@ fn find_all_descendants(graph: &ChangeGraph, bookmark: &str) -> Vec<String> {
             // After finding our bookmark, all subsequent bookmarks are descendants
             if found_bookmark {
                 for b in &segment.bookmarks {
-                    if !descendants.contains(&b.name) && b.name != bookmark {
-                        descendants.push(b.name.clone());
+                    if b.name != bookmark {
+                        seen.insert(b.name.clone());
                     }
                 }
             }
         }
     }
 
-    descendants
+    seen.into_iter().collect()
 }
 
 /// Apply plan modifications based on options
@@ -353,18 +371,22 @@ fn interactive_select(analysis: &SubmissionAnalysis) -> Result<Vec<String>> {
         .interact()
         .map_err(|e| Error::Internal(format!("Failed to read selection: {e}")))?;
 
-    // Validate selection is contiguous (no gaps)
+    // Validate selection is contiguous (no gaps).
+    // A contiguous selection has span == count: max - min + 1 == len
     if !selections.is_empty() {
         let min_idx = *selections.iter().min().unwrap();
         let max_idx = *selections.iter().max().unwrap();
+        let span = max_idx - min_idx + 1;
 
-        for i in min_idx..=max_idx {
-            if !selections.contains(&i) {
-                return Err(Error::InvalidArgument(format!(
-                    "Cannot submit - selection has gap at '{}'. Stacked PRs must be contiguous.",
-                    analysis.segments[i].bookmark.name
-                )));
-            }
+        if span != selections.len() {
+            // Find first gap for error message
+            let gap_idx = (min_idx..=max_idx)
+                .find(|i| !selections.contains(i))
+                .unwrap();
+            return Err(Error::InvalidArgument(format!(
+                "Cannot submit - selection has gap at '{}'. Stacked PRs must be contiguous.",
+                analysis.segments[gap_idx].bookmark.name
+            )));
         }
     }
 
@@ -388,14 +410,11 @@ fn filter_plan_to_selection(plan: &mut SubmissionPlan, selected: &[String]) {
 
 /// Print submission summary
 fn print_submission_summary(analysis: &SubmissionAnalysis, options: &SubmitOptions<'_>) {
-    let mode = if options.only {
-        " (--only)"
-    } else if options.upto.is_some() {
-        " (--upto)"
-    } else if options.stack {
-        " (--stack)"
-    } else {
-        ""
+    let mode = match options.scope {
+        SubmitScope::Default => "",
+        SubmitScope::Upto => " (--upto)",
+        SubmitScope::Only => " (--only)",
+        SubmitScope::Stack => " (--stack)",
     };
 
     println!(

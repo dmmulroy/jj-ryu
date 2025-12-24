@@ -91,12 +91,14 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_
     let mut stack_plans: Vec<(&str, SubmissionPlan)> = Vec::new();
 
     for stack in &stacks_to_sync {
-        if stack.segments.is_empty() {
+        // Get the leaf bookmark (last segment, first bookmark)
+        let Some(last_segment) = stack.segments.last() else {
             continue;
-        }
-
-        // Get the leaf bookmark (last segment)
-        let leaf_bookmark = &stack.segments.last().unwrap().bookmarks[0].name;
+        };
+        let Some(leaf_bm) = last_segment.bookmarks.first() else {
+            continue;
+        };
+        let leaf_bookmark = &leaf_bm.name;
 
         let analysis = analyze_submission(&graph, leaf_bookmark)?;
         let plan =

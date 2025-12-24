@@ -5,6 +5,58 @@ use crate::platform::PlatformService;
 use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
 use async_trait::async_trait;
 use octocrab::Octocrab;
+use serde::Deserialize;
+
+// GraphQL response types for publish_pr mutation
+
+#[derive(Deserialize)]
+struct GraphQlResponse<T> {
+    data: Option<T>,
+    errors: Option<Vec<GraphQlError>>,
+}
+
+#[derive(Deserialize)]
+struct GraphQlError {
+    message: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyForReviewData {
+    mark_pull_request_ready_for_review: MarkReadyPayload,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyPayload {
+    pull_request: GraphQlPullRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphQlPullRequest {
+    number: u64,
+    url: String,
+    base_ref_name: String,
+    head_ref_name: String,
+    title: String,
+    id: String,
+    is_draft: bool,
+}
+
+impl From<GraphQlPullRequest> for PullRequest {
+    fn from(pr: GraphQlPullRequest) -> Self {
+        Self {
+            number: pr.number,
+            html_url: pr.url,
+            base_ref: pr.base_ref_name,
+            head_ref: pr.head_ref_name,
+            title: pr.title,
+            node_id: Some(pr.id),
+            is_draft: pr.is_draft,
+        }
+    }
+}
 
 /// GitHub service using octocrab
 pub struct GitHubService {
@@ -117,7 +169,7 @@ impl PlatformService for GitHubService {
         })?;
 
         // Execute GraphQL mutation to mark PR as ready for review
-        let response: serde_json::Value = self
+        let response: GraphQlResponse<MarkReadyForReviewData> = self
             .client
             .graphql(&serde_json::json!({
                 "query": r"
@@ -143,34 +195,22 @@ impl PlatformService for GitHubService {
             .map_err(|e| Error::GitHubApi(format!("GraphQL mutation failed: {e}")))?;
 
         // Check for GraphQL errors
-        if let Some(errors) = response.get("errors") {
-            if errors.is_array() && !errors.as_array().unwrap().is_empty() {
-                return Err(Error::GitHubApi(format!("GraphQL error: {errors}")));
+        if let Some(errors) = response.errors {
+            if !errors.is_empty() {
+                let messages: Vec<_> = errors.into_iter().map(|e| e.message).collect();
+                return Err(Error::GitHubApi(format!(
+                    "GraphQL error: {}",
+                    messages.join(", ")
+                )));
             }
         }
 
-        // Parse response
-        let pr_data = response
-            .get("data")
-            .and_then(|d| d.get("markPullRequestReadyForReview"))
-            .and_then(|m| m.get("pullRequest"))
-            .ok_or_else(|| Error::GitHubApi("Invalid GraphQL response structure".to_string()))?;
+        // Extract typed response
+        let data = response
+            .data
+            .ok_or_else(|| Error::GitHubApi("No data in GraphQL response".to_string()))?;
 
-        Ok(PullRequest {
-            number: pr_data["number"].as_u64().unwrap_or(pr_number),
-            html_url: pr_data["url"].as_str().unwrap_or_default().to_string(),
-            base_ref: pr_data["baseRefName"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-            head_ref: pr_data["headRefName"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-            title: pr_data["title"].as_str().unwrap_or_default().to_string(),
-            node_id: pr_data["id"].as_str().map(String::from),
-            is_draft: pr_data["isDraft"].as_bool().unwrap_or(false),
-        })
+        Ok(data.mark_pull_request_ready_for_review.pull_request.into())
     }
 
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>> {

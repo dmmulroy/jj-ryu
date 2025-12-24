@@ -57,14 +57,6 @@ struct CreateMrPayload {
     draft: Option<bool>,
 }
 
-#[derive(Serialize)]
-struct UpdateMrPayload {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    state_event: Option<String>,
-}
-
 /// Default request timeout in seconds
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
@@ -172,16 +164,11 @@ impl PlatformService for GitLabService {
             pr_number
         ));
 
-        let payload = UpdateMrPayload {
-            target_branch: Some(new_base.to_string()),
-            state_event: None,
-        };
-
         let mr: MergeRequest = self
             .client
             .put(&url)
             .header("PRIVATE-TOKEN", &self.token)
-            .json(&payload)
+            .json(&serde_json::json!({ "target_branch": new_base }))
             .send()
             .await?
             .error_for_status()

@@ -38,11 +38,11 @@ enum Commands {
         confirm: bool,
 
         /// Submit only up to (and including) this bookmark
-        #[arg(long)]
+        #[arg(long, group = "scope")]
         upto: Option<String>,
 
         /// Submit only this bookmark (parent must already have a PR)
-        #[arg(long)]
+        #[arg(long, group = "scope")]
         only: bool,
 
         /// Only update existing PRs, don't create new ones
@@ -50,7 +50,7 @@ enum Commands {
         update_only: bool,
 
         /// Include all descendants (upstack) in submission
-        #[arg(long, short = 's')]
+        #[arg(long, short = 's', group = "scope")]
         stack: bool,
 
         /// Create new PRs as drafts
@@ -141,6 +141,18 @@ async fn main() -> Result<()> {
             select,
             remote,
         }) => {
+            // Determine scope from mutually exclusive flags (enforced by clap arg groups)
+            #[allow(clippy::option_if_let_else)]
+            let (scope, upto_bookmark) = if let Some(ref upto_bm) = upto {
+                (cli::SubmitScope::Upto, Some(upto_bm.as_str()))
+            } else if only {
+                (cli::SubmitScope::Only, None)
+            } else if stack {
+                (cli::SubmitScope::Stack, None)
+            } else {
+                (cli::SubmitScope::Default, None)
+            };
+
             cli::run_submit(
                 &path,
                 &bookmark,
@@ -148,10 +160,9 @@ async fn main() -> Result<()> {
                 cli::SubmitOptions {
                     dry_run,
                     confirm,
-                    upto: upto.as_deref(),
-                    only,
+                    scope,
+                    upto_bookmark,
                     update_only,
-                    stack,
                     draft,
                     publish,
                     select,

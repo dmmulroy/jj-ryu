@@ -24,10 +24,11 @@ if (!version) {
   process.exit(1);
 }
 
-// Validate semver format
-if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
-  console.error(`Invalid version format: ${version}`);
-  console.error("Expected: X.Y.Z or X.Y.Z-prerelease");
+// Validate semver using semver package
+try {
+  execSync(`npx --yes semver "${version}"`, { stdio: "pipe" });
+} catch {
+  console.error(`Invalid semver: ${version}`);
   process.exit(1);
 }
 

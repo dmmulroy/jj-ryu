@@ -27,29 +27,33 @@ jobs:
           node-version: "20"
 
       - name: Validate version format
+        id: version
         run: |
           VERSION="${{ inputs.version }}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._]+)?$ ]]; then
-            echo "Error: Invalid version format: $VERSION"
-            echo "Expected: X.Y.Z or X.Y.Z-prerelease"
+          # Strip v prefix if present
+          VERSION="${VERSION#v}"
+          # Validate using semver package
+          if ! npx --yes semver "$VERSION" > /dev/null 2>&1; then
+            echo "Error: Invalid semver: $VERSION"
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check tag doesn't exist
         run: |
-          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag v${{ inputs.version }} already exists"
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag v${{ steps.version.outputs.version }} already exists"
             exit 1
           fi
 
       - name: Update Cargo.toml version
         run: |
-          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+          sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' Cargo.toml
           echo "Updated Cargo.toml:"
           grep '^version' Cargo.toml
 
       - name: Update npm package versions
-        run: node npm/scripts/update-versions.mjs ${{ inputs.version }}
+        run: node npm/scripts/update-versions.mjs ${{ steps.version.outputs.version }}
 
       - name: Configure git
         run: |
@@ -59,19 +63,19 @@ jobs:
       - name: Commit version bump
         run: |
           git add Cargo.toml npm/
-          git commit -m "release: v${{ inputs.version }}"
+          git commit -m "release: v${{ steps.version.outputs.version }}"
 
       - name: Create and push tag
         run: |
-          git tag "v${{ inputs.version }}"
+          git tag "v${{ steps.version.outputs.version }}"
           git push origin HEAD:${{ github.ref_name }}
-          git push origin "v${{ inputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Summary
         run: |
           echo "## Release triggered 🚀" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag**: [v${{ inputs.version }}](${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ inputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: v${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: [v${{ steps.version.outputs.version }}](${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "The release workflow will now build and publish." >> $GITHUB_STEP_SUMMARY

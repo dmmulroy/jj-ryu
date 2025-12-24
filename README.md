@@ -256,6 +256,27 @@ ryu auth gitlab test    # Test GitLab auth
 ryu auth gitlab setup   # Show setup instructions
 ```
 
+## Coming from Graphite?
+
+Ryu's CLI is inspired by Graphite. Here's how commands map:
+
+| Graphite | Ryu |
+|----------|-----|
+| `gt submit` | `ryu submit <bookmark>` |
+| `gt submit --stack` | `ryu submit <bookmark> --stack` |
+| `gt submit --only` | `ryu submit <bookmark> --only` |
+| `gt submit --draft` | `ryu submit <bookmark> --draft` |
+| `gt submit --publish` | `ryu submit <bookmark> --publish` |
+| `gt submit --confirm` | `ryu submit <bookmark> --confirm` |
+| `gt sync` | `ryu sync` |
+| `gt branch create` | `jj bookmark create` |
+| `gt restack` | `jj rebase` |
+
+Key differences:
+- Ryu requires an explicit bookmark argument (jj doesn't track "current branch")
+- Stack management uses jj commands (`jj bookmark`, `jj rebase`), not ryu
+- `ryu sync --stack <bookmark>` syncs a single stack (Graphite syncs all)
+
 ## License
 
 MIT

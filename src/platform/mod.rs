@@ -25,11 +25,36 @@ pub trait PlatformService: Send + Sync {
     /// Find an existing open PR for a head branch
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>>;
 
-    /// Create a new PR
-    async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest>;
+    /// Create a new PR with default options (non-draft).
+    ///
+    /// This is a convenience method that delegates to [`create_pr_with_options`]
+    /// with `draft: false`. Implementors should override `create_pr_with_options`,
+    /// not this method.
+    ///
+    /// [`create_pr_with_options`]: Self::create_pr_with_options
+    async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
+        self.create_pr_with_options(head, base, title, false).await
+    }
+
+    /// Create a new PR with explicit draft option.
+    ///
+    /// Implementors must provide this method. The default [`create_pr`] method
+    /// delegates here with `draft: false`.
+    ///
+    /// [`create_pr`]: Self::create_pr
+    async fn create_pr_with_options(
+        &self,
+        head: &str,
+        base: &str,
+        title: &str,
+        draft: bool,
+    ) -> Result<PullRequest>;
 
     /// Update the base branch of an existing PR
     async fn update_pr_base(&self, pr_number: u64, new_base: &str) -> Result<PullRequest>;
+
+    /// Publish a draft PR (convert to ready for review)
+    async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest>;
 
     /// List comments on a PR
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>>;

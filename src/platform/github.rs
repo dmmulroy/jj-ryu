@@ -5,6 +5,58 @@ use crate::platform::PlatformService;
 use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
 use async_trait::async_trait;
 use octocrab::Octocrab;
+use serde::Deserialize;
+
+// GraphQL response types for publish_pr mutation
+
+#[derive(Deserialize)]
+struct GraphQlResponse<T> {
+    data: Option<T>,
+    errors: Option<Vec<GraphQlError>>,
+}
+
+#[derive(Deserialize)]
+struct GraphQlError {
+    message: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyForReviewData {
+    mark_pull_request_ready_for_review: MarkReadyPayload,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkReadyPayload {
+    pull_request: GraphQlPullRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphQlPullRequest {
+    number: u64,
+    url: String,
+    base_ref_name: String,
+    head_ref_name: String,
+    title: String,
+    id: String,
+    is_draft: bool,
+}
+
+impl From<GraphQlPullRequest> for PullRequest {
+    fn from(pr: GraphQlPullRequest) -> Self {
+        Self {
+            number: pr.number,
+            html_url: pr.url,
+            base_ref: pr.base_ref_name,
+            head_ref: pr.head_ref_name,
+            title: pr.title,
+            node_id: Some(pr.id),
+            is_draft: pr.is_draft,
+        }
+    }
+}
 
 /// GitHub service using octocrab
 pub struct GitHubService {
@@ -40,6 +92,23 @@ impl GitHubService {
     }
 }
 
+/// Helper to convert octocrab PR to our `PullRequest` type
+fn pr_from_octocrab(pr: &octocrab::models::pulls::PullRequest) -> PullRequest {
+    PullRequest {
+        number: pr.number,
+        html_url: pr
+            .html_url
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default(),
+        base_ref: pr.base.ref_field.clone(),
+        head_ref: pr.head.ref_field.clone(),
+        title: pr.title.as_deref().unwrap_or_default().to_string(),
+        node_id: pr.node_id.clone(),
+        is_draft: pr.draft.unwrap_or(false),
+    }
+}
+
 #[async_trait]
 impl PlatformService for GitHubService {
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>> {
@@ -54,38 +123,25 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
-        Ok(prs.items.first().map(|pr| PullRequest {
-            number: pr.number,
-            html_url: pr
-                .html_url
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-            base_ref: pr.base.ref_field.clone(),
-            head_ref: pr.head.ref_field.clone(),
-            title: pr.title.as_deref().unwrap_or_default().to_string(),
-        }))
+        Ok(prs.items.first().map(pr_from_octocrab))
     }
 
-    async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
+    async fn create_pr_with_options(
+        &self,
+        head: &str,
+        base: &str,
+        title: &str,
+        draft: bool,
+    ) -> Result<PullRequest> {
         let pr = self
             .client
             .pulls(&self.config.owner, &self.config.repo)
             .create(title, head, base)
+            .draft(draft)
             .send()
             .await?;
 
-        Ok(PullRequest {
-            number: pr.number,
-            html_url: pr
-                .html_url
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-            base_ref: pr.base.ref_field.clone(),
-            head_ref: pr.head.ref_field.clone(),
-            title: pr.title.as_deref().unwrap_or_default().to_string(),
-        })
+        Ok(pr_from_octocrab(&pr))
     }
 
     async fn update_pr_base(&self, pr_number: u64, new_base: &str) -> Result<PullRequest> {
@@ -97,17 +153,64 @@ impl PlatformService for GitHubService {
             .send()
             .await?;
 
-        Ok(PullRequest {
-            number: pr.number,
-            html_url: pr
-                .html_url
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-            base_ref: pr.base.ref_field.clone(),
-            head_ref: pr.head.ref_field.clone(),
-            title: pr.title.as_deref().unwrap_or_default().to_string(),
-        })
+        Ok(pr_from_octocrab(&pr))
+    }
+
+    async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest> {
+        // Fetch PR to get node_id for GraphQL mutation
+        let pr = self
+            .client
+            .pulls(&self.config.owner, &self.config.repo)
+            .get(pr_number)
+            .await?;
+
+        let node_id = pr.node_id.as_ref().ok_or_else(|| {
+            Error::GitHubApi("PR missing node_id for GraphQL mutation".to_string())
+        })?;
+
+        // Execute GraphQL mutation to mark PR as ready for review
+        let response: GraphQlResponse<MarkReadyForReviewData> = self
+            .client
+            .graphql(&serde_json::json!({
+                "query": r"
+                    mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
+                        markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+                            pullRequest {
+                                number
+                                url
+                                baseRefName
+                                headRefName
+                                title
+                                id
+                                isDraft
+                            }
+                        }
+                    }
+                ",
+                "variables": {
+                    "pullRequestId": node_id
+                }
+            }))
+            .await
+            .map_err(|e| Error::GitHubApi(format!("GraphQL mutation failed: {e}")))?;
+
+        // Check for GraphQL errors
+        if let Some(errors) = response.errors {
+            if !errors.is_empty() {
+                let messages: Vec<_> = errors.into_iter().map(|e| e.message).collect();
+                return Err(Error::GitHubApi(format!(
+                    "GraphQL error: {}",
+                    messages.join(", ")
+                )));
+            }
+        }
+
+        // Extract typed response
+        let data = response
+            .data
+            .ok_or_else(|| Error::GitHubApi("No data in GraphQL response".to_string()))?;
+
+        Ok(data.mark_pull_request_ready_for_review.pull_request.into())
     }
 
     async fn list_pr_comments(&self, pr_number: u64) -> Result<Vec<PrComment>> {

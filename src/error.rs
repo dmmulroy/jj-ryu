@@ -83,6 +83,10 @@ pub enum Error {
     /// Internal error (unexpected state)
     #[error("internal error: {0}")]
     Internal(String),
+
+    /// Invalid command-line argument
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
 }
 
 /// Result type alias for jj-ryu operations

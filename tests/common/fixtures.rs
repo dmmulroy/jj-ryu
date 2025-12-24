@@ -73,6 +73,8 @@ pub fn make_pr(number: u64, head: &str, base: &str) -> PullRequest {
         base_ref: base.to_string(),
         head_ref: head.to_string(),
         title: format!("PR for {head}"),
+        node_id: Some(format!("PR_node_{number}")),
+        is_draft: false,
     }
 }
 

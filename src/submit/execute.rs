@@ -152,18 +152,20 @@ pub async fn execute_submission(
     progress.on_phase(Phase::CreatingPrs).await;
 
     for pr_to_create in &plan.prs_to_create {
+        let draft_str = if pr_to_create.draft { " [draft]" } else { "" };
         progress
             .on_message(&format!(
-                "Creating PR for {} (base: {})",
+                "Creating PR for {} (base: {}){draft_str}",
                 pr_to_create.bookmark.name, pr_to_create.base_branch
             ))
             .await;
 
         match platform
-            .create_pr(
+            .create_pr_with_options(
                 &pr_to_create.bookmark.name,
                 &pr_to_create.base_branch,
                 &pr_to_create.title,
+                pr_to_create.draft,
             )
             .await
         {
@@ -183,6 +185,30 @@ pub async fn execute_submission(
                 result.errors.push(msg);
                 result.success = false;
                 return Ok(result);
+            }
+        }
+    }
+
+    // Phase: Publishing draft PRs
+    if !plan.prs_to_publish.is_empty() {
+        progress.on_phase(Phase::PublishingPrs).await;
+
+        for pr in &plan.prs_to_publish {
+            progress
+                .on_message(&format!("Publishing PR #{} ({})", pr.number, pr.head_ref))
+                .await;
+
+            match platform.publish_pr(pr.number).await {
+                Ok(updated_pr) => {
+                    result.updated_prs.push(updated_pr.clone());
+                    bookmark_to_pr.insert(pr.head_ref.clone(), updated_pr);
+                }
+                Err(e) => {
+                    let msg = format!("Failed to publish PR #{}: {e}", pr.number);
+                    progress.on_error(&Error::Platform(msg.clone())).await;
+                    result.errors.push(msg);
+                    // Don't fail the whole submission for publish errors
+                }
             }
         }
     }
@@ -346,6 +372,8 @@ mod tests {
             base_ref: "main".to_string(),
             head_ref: bookmark.to_string(),
             title: format!("PR for {bookmark}"),
+            node_id: Some(format!("PR_node_{number}")),
+            is_draft: false,
         }
     }
 
@@ -377,6 +405,7 @@ mod tests {
             bookmarks_needing_push: vec![],
             prs_to_create: vec![],
             prs_to_update_base: vec![],
+            prs_to_publish: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),

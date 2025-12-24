@@ -105,6 +105,10 @@ pub struct PullRequest {
     pub head_ref: String,
     /// PR/MR title
     pub title: String,
+    /// GraphQL node ID (GitHub only, used for mutations)
+    pub node_id: Option<String>,
+    /// Whether PR is a draft
+    pub is_draft: bool,
 }
 
 /// A comment on a pull request

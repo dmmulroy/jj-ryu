@@ -23,6 +23,8 @@ struct MergeRequest {
     source_branch: String,
     target_branch: String,
     title: String,
+    #[serde(default)]
+    draft: bool,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +42,8 @@ impl From<MergeRequest> for PullRequest {
             base_ref: mr.target_branch,
             head_ref: mr.source_branch,
             title: mr.title,
+            node_id: None, // GitLab doesn't use GraphQL node IDs
+            is_draft: mr.draft,
         }
     }
 }
@@ -49,11 +53,8 @@ struct CreateMrPayload {
     source_branch: String,
     target_branch: String,
     title: String,
-}
-
-#[derive(Serialize)]
-struct UpdateMrPayload {
-    target_branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    draft: Option<bool>,
 }
 
 /// Default request timeout in seconds
@@ -122,7 +123,13 @@ impl PlatformService for GitLabService {
         Ok(mrs.into_iter().next().map(Into::into))
     }
 
-    async fn create_pr(&self, head: &str, base: &str, title: &str) -> Result<PullRequest> {
+    async fn create_pr_with_options(
+        &self,
+        head: &str,
+        base: &str,
+        title: &str,
+        draft: bool,
+    ) -> Result<PullRequest> {
         let url = self.api_url(&format!(
             "/projects/{}/merge_requests",
             self.encoded_project()
@@ -132,6 +139,7 @@ impl PlatformService for GitLabService {
             source_branch: head.to_string(),
             target_branch: base.to_string(),
             title: title.to_string(),
+            draft: if draft { Some(true) } else { None },
         };
 
         let mr: MergeRequest = self
@@ -156,15 +164,36 @@ impl PlatformService for GitLabService {
             pr_number
         ));
 
-        let payload = UpdateMrPayload {
-            target_branch: new_base.to_string(),
-        };
-
         let mr: MergeRequest = self
             .client
             .put(&url)
             .header("PRIVATE-TOKEN", &self.token)
-            .json(&payload)
+            .json(&serde_json::json!({ "target_branch": new_base }))
+            .send()
+            .await?
+            .error_for_status()
+            .map_err(|e| Error::GitLabApi(e.to_string()))?
+            .json()
+            .await?;
+
+        Ok(mr.into())
+    }
+
+    async fn publish_pr(&self, pr_number: u64) -> Result<PullRequest> {
+        // GitLab: Use state_event to mark MR as ready
+        // We need to remove the draft/WIP status
+        let url = self.api_url(&format!(
+            "/projects/{}/merge_requests/{}",
+            self.encoded_project(),
+            pr_number
+        ));
+
+        // GitLab uses state_event: "ready" to mark as ready for review
+        let mr: MergeRequest = self
+            .client
+            .put(&url)
+            .header("PRIVATE-TOKEN", &self.token)
+            .json(&serde_json::json!({ "state_event": "ready" }))
             .send()
             .await?
             .error_for_status()

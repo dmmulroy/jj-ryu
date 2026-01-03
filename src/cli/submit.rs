@@ -7,7 +7,7 @@ use jj_ryu::graph::build_change_graph;
 use jj_ryu::platform::{PlatformService, create_platform_service, parse_repo_info};
 use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{
-    SubmissionAnalysis, SubmissionPlan, analyze_submission, create_submission_plan,
+    ExecutionStep, SubmissionAnalysis, SubmissionPlan, analyze_submission, create_submission_plan,
     execute_submission,
 };
 use jj_ryu::types::ChangeGraph;
@@ -25,6 +25,17 @@ pub enum SubmitScope {
     Only,
     /// Include all descendants (upstack) in submission
     Stack,
+}
+
+impl std::fmt::Display for SubmitScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Default => Ok(()),
+            Self::Upto => write!(f, " (--upto)"),
+            Self::Only => write!(f, " (--only)"),
+            Self::Stack => write!(f, " (--stack)"),
+        }
+    }
 }
 
 /// Options for the submit command
@@ -316,30 +327,41 @@ fn find_all_descendants(graph: &ChangeGraph, bookmark: &str) -> Vec<String> {
 
 /// Apply plan modifications based on options
 fn apply_plan_options(plan: &mut SubmissionPlan, options: &SubmitOptions<'_>) {
-    // Handle --update-only: remove PR creation
+    // Handle --update-only: remove PR creation steps and filter to existing PRs
     if options.update_only {
-        plan.prs_to_create.clear();
-
-        // Also filter bookmarks_needing_push to only those with existing PRs
-        plan.bookmarks_needing_push
-            .retain(|b| plan.existing_prs.contains_key(&b.name));
-    }
-
-    // Handle --draft: mark new PRs as drafts
-    if options.draft {
-        for pr_to_create in &mut plan.prs_to_create {
-            pr_to_create.draft = true;
-        }
-    }
-
-    // Handle --publish: queue existing draft PRs for publishing
-    if options.publish {
-        for pr in plan.existing_prs.values() {
-            if pr.is_draft {
-                plan.prs_to_publish.push(pr.clone());
+        plan.execution_steps.retain(|step| {
+            match step {
+                ExecutionStep::CreatePr(_) => false, // Remove all creates
+                ExecutionStep::Push(bm) => plan.existing_prs.contains_key(&bm.name),
+                _ => true,
             }
-            // Non-draft PRs silently skipped (matches Graphite behavior)
+        });
+    }
+
+    // Handle --draft: mark new PRs as drafts (unless --publish is also set)
+    // When both flags are present, --publish takes precedence and --draft is ignored
+    if options.draft && !options.publish {
+        for step in &mut plan.execution_steps {
+            if let ExecutionStep::CreatePr(create) = step {
+                create.draft = true;
+            }
         }
+    }
+
+    // Handle --publish: publish existing draft PRs
+    //
+    // These steps are appended without constraint resolution because:
+    // 1. They only operate on PRs that already exist (from previous runs)
+    // 2. Publishing has no ordering dependencies with push/create/update operations
+    if options.publish {
+        let publish_steps: Vec<_> = plan
+            .existing_prs
+            .values()
+            .filter(|pr| pr.is_draft)
+            .map(|pr| ExecutionStep::PublishPr(pr.clone()))
+            .collect();
+
+        plan.execution_steps.extend(publish_steps);
     }
 }
 
@@ -400,32 +422,17 @@ fn interactive_select(analysis: &SubmissionAnalysis) -> Result<Vec<String>> {
 fn filter_plan_to_selection(plan: &mut SubmissionPlan, selected: &[String]) {
     plan.segments
         .retain(|s| selected.contains(&s.bookmark.name));
-    plan.bookmarks_needing_push
-        .retain(|b| selected.contains(&b.name));
-    plan.prs_to_create
-        .retain(|p| selected.contains(&p.bookmark.name));
-    plan.prs_to_update_base
-        .retain(|p| selected.contains(&p.bookmark.name));
+    plan.execution_steps
+        .retain(|step| selected.contains(&step.bookmark_name().to_string()));
 }
 
 /// Print submission summary
 fn print_submission_summary(analysis: &SubmissionAnalysis, options: &SubmitOptions<'_>) {
-    let mode = match options.scope {
-        SubmitScope::Default => "",
-        SubmitScope::Upto => " (--upto)",
-        SubmitScope::Only => " (--only)",
-        SubmitScope::Stack => " (--stack)",
-    };
-
     println!(
         "Submitting {} bookmark{}{} in stack:",
         analysis.segments.len(),
-        if analysis.segments.len() == 1 {
-            ""
-        } else {
-            "s"
-        },
-        mode
+        if analysis.segments.len() == 1 { "" } else { "s" },
+        options.scope
     );
 
     // Display newest (leaf) first, oldest (closest to trunk) last
@@ -444,47 +451,15 @@ fn print_submission_summary(analysis: &SubmissionAnalysis, options: &SubmitOptio
 fn print_plan_preview(plan: &SubmissionPlan) {
     println!("Plan:");
 
-    if !plan.bookmarks_needing_push.is_empty() {
-        println!("  Push:");
-        for bm in &plan.bookmarks_needing_push {
-            println!("    - {} → {}", bm.name, plan.remote);
-        }
-    }
-
-    if !plan.prs_to_update_base.is_empty() {
-        println!("  Update PR bases:");
-        for update in &plan.prs_to_update_base {
-            println!(
-                "    - {} (PR #{}) {} → {}",
-                update.bookmark.name, update.pr.number, update.current_base, update.expected_base
-            );
-        }
-    }
-
-    if !plan.prs_to_create.is_empty() {
-        println!("  Create PRs:");
-        for pr in &plan.prs_to_create {
-            let draft_str = if pr.draft { " [draft]" } else { "" };
-            println!(
-                "    - {} → {} ({}){draft_str}",
-                pr.bookmark.name, pr.base_branch, pr.title
-            );
-        }
-    }
-
-    if !plan.prs_to_publish.is_empty() {
-        println!("  Publish PRs:");
-        for pr in &plan.prs_to_publish {
-            println!("    - {} (PR #{})", pr.head_ref, pr.number);
-        }
-    }
-
-    if plan.bookmarks_needing_push.is_empty()
-        && plan.prs_to_update_base.is_empty()
-        && plan.prs_to_create.is_empty()
-        && plan.prs_to_publish.is_empty()
-    {
+    if plan.execution_steps.is_empty() {
         println!("  Nothing to do - already in sync");
+        println!();
+        return;
+    }
+
+    println!("  Steps:");
+    for step in &plan.execution_steps {
+        println!("    → {step}");
     }
 
     println!();

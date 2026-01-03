@@ -119,6 +119,63 @@ impl TempJjRepo {
             .map(|b| b.name)
             .collect()
     }
+
+    /// Run a jj command with arguments, returning stdout on success
+    #[allow(dead_code)]
+    fn run_jj(&self, args: &[&str]) -> String {
+        let output = Command::new("jj")
+            .args(args)
+            .current_dir(self.dir.path())
+            .output()
+            .expect("failed to run jj command");
+
+        assert!(
+            output.status.success(),
+            "jj {} failed at {}: {}",
+            args.join(" "),
+            self.dir.path().display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        String::from_utf8_lossy(&output.stdout).to_string()
+    }
+
+    /// Rebase a revision before another revision
+    ///
+    /// Example: `rebase_before("feat-b", "feat-a")` moves feat-b to be
+    /// the parent of feat-a (i.e., swaps their order if feat-a was parent of feat-b)
+    #[allow(dead_code)]
+    pub fn rebase_before(&self, rev: &str, before: &str) {
+        self.run_jj(&["rebase", "-r", rev, "--before", before]);
+    }
+
+    /// Move a bookmark to a different revision
+    #[allow(dead_code)]
+    pub fn move_bookmark(&self, name: &str, to_rev: &str) {
+        self.run_jj(&["bookmark", "move", name, "--to", to_rev]);
+    }
+
+    /// Get the change ID for a bookmark
+    #[allow(dead_code)]
+    pub fn change_id(&self, bookmark: &str) -> String {
+        let output = self.run_jj(&["log", "-r", bookmark, "--no-graph", "-T", "change_id"]);
+        output.trim().to_string()
+    }
+
+    /// Create an empty commit (useful for testing without file changes)
+    #[allow(dead_code)]
+    pub fn empty_commit(&self, message: &str) {
+        let output = Command::new("jj")
+            .args(["commit", "--allow-empty", "-m", message])
+            .current_dir(self.dir.path())
+            .output()
+            .expect("failed to run jj commit");
+
+        // --allow-empty may not exist in all jj versions, fall back to regular commit
+        if !output.status.success() {
+            self.commit(message);
+        }
+    }
 }
 
 impl Default for TempJjRepo {

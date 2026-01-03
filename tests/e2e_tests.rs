@@ -1117,3 +1117,226 @@ async fn test_submit_dry_run() {
 
     repo.cleanup();
 }
+
+// =============================================================================
+// ExecutionStep Model E2E Tests (RFC: Unified Execution Step Model)
+// =============================================================================
+
+/// Test: Stack swap scenario works correctly with real GitHub API
+///
+/// This validates the critical swap scenario from the RFC where reordering
+/// commits requires correct execution ordering to avoid GitHub API rejection.
+#[tokio::test]
+#[ignore = "E2E test requiring JJ_RYU_E2E_TESTS=1"]
+async fn test_stack_swap_reorder() {
+    let Some(mut repo) = E2ERepo::new() else {
+        eprintln!("Skipping: set JJ_RYU_E2E_TESTS=1");
+        return;
+    };
+
+    // Create initial stack: A -> B (A is root, B is leaf)
+    let bookmarks = repo.build_stack(&[("swap-a", "Swap A"), ("swap-b", "Swap B")]);
+
+    // Initial submit to create PRs with original structure
+    let output = repo.submit(&bookmarks[1]);
+    assert!(
+        output.status.success(),
+        "initial submit failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let pr_a = find_pr_number(&bookmarks[0]).expect("PR A should exist");
+    let pr_b = find_pr_number(&bookmarks[1]).expect("PR B should exist");
+
+    // Verify initial bases: A->main, B->A
+    assert_eq!(get_pr_base(pr_a), Some("main".into()));
+    assert_eq!(get_pr_base(pr_b), Some(bookmarks[0].clone()));
+
+    // Swap the stack: rebase B before A (making B the new root)
+    let rebase = Command::new("jj")
+        .args(["rebase", "-r", &bookmarks[1], "--before", &bookmarks[0]])
+        .current_dir(repo.path())
+        .output()
+        .expect("jj rebase");
+
+    assert!(
+        rebase.status.success(),
+        "rebase failed: {}",
+        String::from_utf8_lossy(&rebase.stderr)
+    );
+
+    // Re-submit after swap
+    // The ExecutionStep model should handle this by:
+    // 1. Retargeting B's PR from A to main (before pushing A's new history)
+    // 2. Retargeting A's PR from main to B
+    // 3. Pushing both branches
+    let output = repo.submit(&bookmarks[0]); // A is now the leaf
+    assert!(
+        output.status.success(),
+        "submit after swap failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify new bases after swap: B->main, A->B
+    assert_eq!(
+        get_pr_base(pr_b),
+        Some("main".into()),
+        "After swap, B should target main"
+    );
+    assert_eq!(
+        get_pr_base(pr_a),
+        Some(bookmarks[1].clone()),
+        "After swap, A should target B"
+    );
+
+    repo.cleanup();
+}
+
+/// Test: Mixed operations (push, update, create) execute in correct order
+#[tokio::test]
+#[ignore = "E2E test requiring JJ_RYU_E2E_TESTS=1"]
+async fn test_mixed_operations_ordering() {
+    let Some(mut repo) = E2ERepo::new() else {
+        eprintln!("Skipping: set JJ_RYU_E2E_TESTS=1");
+        return;
+    };
+
+    // Create A -> B, submit only A first
+    let bookmarks = repo.build_stack(&[("mixed-a", "Mixed A"), ("mixed-b", "Mixed B")]);
+
+    // Submit just A (partial stack)
+    let output = repo.submit(&bookmarks[0]);
+    assert!(
+        output.status.success(),
+        "submit A failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let pr_a = find_pr_number(&bookmarks[0]).expect("PR A should exist");
+    assert!(
+        find_pr_number(&bookmarks[1]).is_none(),
+        "PR B should not exist yet"
+    );
+
+    // Now add C after B and submit from C
+    // This creates a scenario with mixed operations:
+    // - A: exists, may need push if changed
+    // - B: needs push + create
+    // - C: needs push + create
+    let _ = Command::new("jj")
+        .args(["new", &bookmarks[1]])
+        .current_dir(repo.path())
+        .output();
+
+    repo.create_commit("Mixed C");
+    let c_bookmark = format!("{}-mixed-c", repo.prefix);
+    let _ = Command::new("jj")
+        .args(["bookmark", "create", &c_bookmark])
+        .current_dir(repo.path())
+        .output();
+    repo.created_bookmarks.push(c_bookmark.clone());
+
+    let output = repo.submit(&c_bookmark);
+    assert!(
+        output.status.success(),
+        "submit C failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify all PRs exist with correct bases
+    let pr_b = find_pr_number(&bookmarks[1]).expect("PR B should exist");
+    let pr_c = find_pr_number(&c_bookmark).expect("PR C should exist");
+
+    assert_eq!(get_pr_base(pr_a), Some("main".into()));
+    assert_eq!(get_pr_base(pr_b), Some(bookmarks[0].clone()));
+    assert_eq!(get_pr_base(pr_c), Some(bookmarks[1].clone()));
+
+    repo.cleanup();
+}
+
+/// Test: Base update after inserting commit in middle of stack
+#[tokio::test]
+#[ignore = "E2E test requiring JJ_RYU_E2E_TESTS=1"]
+async fn test_insert_middle_of_stack() {
+    let Some(mut repo) = E2ERepo::new() else {
+        eprintln!("Skipping: set JJ_RYU_E2E_TESTS=1");
+        return;
+    };
+
+    // Create A -> C (skipping B initially)
+    let _ = repo.build_stack(&[("insert-a", "Insert A")]);
+
+    // Create C on top of A
+    repo.create_commit("Insert C");
+    let c_bookmark = format!("{}-insert-c", repo.prefix);
+    let _ = Command::new("jj")
+        .args(["bookmark", "create", &c_bookmark])
+        .current_dir(repo.path())
+        .output();
+    repo.created_bookmarks.push(c_bookmark.clone());
+
+    // Submit A -> C
+    let output = repo.submit(&c_bookmark);
+    assert!(
+        output.status.success(),
+        "initial submit failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Clone the bookmark name before further mutations
+    let a_bookmark = repo.created_bookmarks[0].clone();
+    let pr_a = find_pr_number(&a_bookmark).expect("PR A");
+    let pr_c = find_pr_number(&c_bookmark).expect("PR C");
+
+    // C should target A
+    assert_eq!(get_pr_base(pr_c), Some(a_bookmark.clone()));
+
+    // Now insert B between A and C using jj rebase
+    // First, create B as a new commit
+    let _ = Command::new("jj")
+        .args(["new", &a_bookmark])
+        .current_dir(repo.path())
+        .output();
+
+    repo.create_commit("Insert B");
+    let b_bookmark = format!("{}-insert-b", repo.prefix);
+    let _ = Command::new("jj")
+        .args(["bookmark", "create", &b_bookmark])
+        .current_dir(repo.path())
+        .output();
+    repo.created_bookmarks.push(b_bookmark.clone());
+
+    // Rebase C onto B (so stack becomes A -> B -> C)
+    let rebase = Command::new("jj")
+        .args(["rebase", "-r", &c_bookmark, "--after", &b_bookmark])
+        .current_dir(repo.path())
+        .output()
+        .expect("jj rebase");
+
+    assert!(
+        rebase.status.success(),
+        "rebase C onto B failed: {}",
+        String::from_utf8_lossy(&rebase.stderr)
+    );
+
+    // Re-submit from C
+    let output = repo.submit(&c_bookmark);
+    assert!(
+        output.status.success(),
+        "submit after insert failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify: A->main, B->A, C->B
+    let pr_b = find_pr_number(&b_bookmark).expect("PR B should be created");
+
+    assert_eq!(get_pr_base(pr_a), Some("main".into()));
+    assert_eq!(get_pr_base(pr_b), Some(a_bookmark));
+    assert_eq!(
+        get_pr_base(pr_c),
+        Some(b_bookmark),
+        "C should now target B after insert"
+    );
+
+    repo.cleanup();
+}

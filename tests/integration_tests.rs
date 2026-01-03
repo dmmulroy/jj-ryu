@@ -7,7 +7,7 @@ mod common;
 use assert_cmd::Command;
 use common::{MockPlatformService, TempJjRepo, github_config, make_pr};
 use jj_ryu::graph::build_change_graph;
-use jj_ryu::submit::{analyze_submission, create_submission_plan};
+use jj_ryu::submit::{ExecutionStep, analyze_submission, create_submission_plan};
 use predicates::prelude::*;
 
 // =============================================================================
@@ -132,18 +132,26 @@ async fn test_full_submit_flow_new_stack() {
         .expect("create plan");
 
     // Verify plan
-    assert_eq!(plan.prs_to_create.len(), 2);
-    assert_eq!(plan.bookmarks_needing_push.len(), 2);
-    assert!(plan.prs_to_update_base.is_empty());
+    assert_eq!(plan.count_creates(), 2);
+    assert_eq!(plan.count_pushes(), 2);
+    assert_eq!(plan.count_updates(), 0);
 
-    // Verify base branches
-    assert_eq!(plan.prs_to_create[0].base_branch, "main");
-    assert_eq!(plan.prs_to_create[1].base_branch, "feat-a");
+    // Find CreatePr steps and verify base branches
+    let creates: Vec<_> = plan
+        .execution_steps
+        .iter()
+        .filter_map(|s| match s {
+            ExecutionStep::CreatePr(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(creates[0].base_branch, "main");
+    assert_eq!(creates[1].base_branch, "feat-a");
 
     // Verify titles are not empty
-    // Note: Exact titles depend on graph building details
-    assert!(!plan.prs_to_create[0].title.is_empty());
-    assert!(!plan.prs_to_create[1].title.is_empty());
+    assert!(!creates[0].title.is_empty());
+    assert!(!creates[1].title.is_empty());
 }
 
 #[tokio::test]
@@ -165,8 +173,18 @@ async fn test_submit_flow_partial_existing_prs() {
         .expect("create plan");
 
     // Only one PR to create
-    assert_eq!(plan.prs_to_create.len(), 1);
-    assert_eq!(plan.prs_to_create[0].bookmark.name, "feat-b");
+    assert_eq!(plan.count_creates(), 1);
+
+    let create = plan
+        .execution_steps
+        .iter()
+        .find_map(|s| match s {
+            ExecutionStep::CreatePr(c) => Some(c),
+            _ => None,
+        })
+        .expect("should have create step");
+
+    assert_eq!(create.bookmark.name, "feat-b");
 
     // One existing PR
     assert_eq!(plan.existing_prs.len(), 1);
@@ -193,13 +211,23 @@ async fn test_submit_flow_base_update_needed() {
         .expect("create plan");
 
     // No PRs to create
-    assert!(plan.prs_to_create.is_empty());
+    assert_eq!(plan.count_creates(), 0);
 
     // One PR needs base update
-    assert_eq!(plan.prs_to_update_base.len(), 1);
-    assert_eq!(plan.prs_to_update_base[0].bookmark.name, "feat-b");
-    assert_eq!(plan.prs_to_update_base[0].current_base, "main");
-    assert_eq!(plan.prs_to_update_base[0].expected_base, "feat-a");
+    assert_eq!(plan.count_updates(), 1);
+
+    let update = plan
+        .execution_steps
+        .iter()
+        .find_map(|s| match s {
+            ExecutionStep::UpdateBase(u) => Some(u),
+            _ => None,
+        })
+        .expect("should have update step");
+
+    assert_eq!(update.bookmark.name, "feat-b");
+    assert_eq!(update.current_base, "main");
+    assert_eq!(update.expected_base, "feat-a");
 }
 
 #[test]
@@ -292,10 +320,19 @@ async fn test_plan_pr_numbers_increment() {
         .expect("create plan");
 
     // Verify we have 2 PRs to create
-    assert_eq!(plan.prs_to_create.len(), 2);
+    assert_eq!(plan.count_creates(), 2);
 
     // Note: PR creation happens during execute, not planning
     // This test verifies the plan structure is correct
-    assert_eq!(plan.prs_to_create[0].bookmark.name, "feat-a");
-    assert_eq!(plan.prs_to_create[1].bookmark.name, "feat-b");
+    let creates: Vec<_> = plan
+        .execution_steps
+        .iter()
+        .filter_map(|s| match s {
+            ExecutionStep::CreatePr(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(creates[0].bookmark.name, "feat-a");
+    assert_eq!(creates[1].bookmark.name, "feat-b");
 }

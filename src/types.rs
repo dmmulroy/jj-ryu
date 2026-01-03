@@ -138,6 +138,15 @@ pub enum Platform {
     GitLab,
 }
 
+impl std::fmt::Display for Platform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GitHub => write!(f, "GitHub"),
+            Self::GitLab => write!(f, "GitLab"),
+        }
+    }
+}
+
 /// Platform configuration
 #[derive(Debug, Clone)]
 pub struct PlatformConfig {

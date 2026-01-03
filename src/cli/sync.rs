@@ -166,35 +166,15 @@ fn print_sync_preview(stack_plans: &[(&str, SubmissionPlan)]) {
     for (leaf_bookmark, plan) in stack_plans {
         println!("Stack: {leaf_bookmark}");
 
-        if !plan.bookmarks_needing_push.is_empty() {
-            println!("  Push:");
-            for bm in &plan.bookmarks_needing_push {
-                println!("    - {}", bm.name);
-            }
-        }
-
-        if !plan.prs_to_create.is_empty() {
-            println!("  Create PRs:");
-            for pr in &plan.prs_to_create {
-                println!("    - {} → {}", pr.bookmark.name, pr.base_branch);
-            }
-        }
-
-        if !plan.prs_to_update_base.is_empty() {
-            println!("  Update PR bases:");
-            for update in &plan.prs_to_update_base {
-                println!(
-                    "    - {} {} → {}",
-                    update.bookmark.name, update.current_base, update.expected_base
-                );
-            }
-        }
-
-        if plan.bookmarks_needing_push.is_empty()
-            && plan.prs_to_create.is_empty()
-            && plan.prs_to_update_base.is_empty()
-        {
+        if plan.execution_steps.is_empty() {
             println!("  Already in sync");
+            println!();
+            continue;
+        }
+
+        println!("  Steps:");
+        for step in &plan.execution_steps {
+            println!("    → {step}");
         }
 
         println!();

@@ -31,23 +31,10 @@ impl CliProgress {
 impl ProgressCallback for CliProgress {
     async fn on_phase(&self, phase: Phase) {
         if self.verbose {
-            match phase {
-                Phase::Analyzing => println!("Analyzing..."),
-                Phase::Planning => println!("Planning..."),
-                Phase::Pushing => println!("Pushing bookmarks..."),
-                Phase::CreatingPrs => println!("Creating PRs..."),
-                Phase::UpdatingPrs => println!("Updating PRs..."),
-                Phase::PublishingPrs => println!("Publishing draft PRs..."),
-                Phase::AddingComments => println!("Updating stack comments..."),
-                Phase::Complete => println!("Done!"),
-            }
+            println!("{phase}...");
         } else {
             match phase {
-                Phase::Pushing => println!("  Pushing bookmarks..."),
-                Phase::CreatingPrs => println!("  Creating PRs..."),
-                Phase::UpdatingPrs => println!("  Updating PRs..."),
-                Phase::PublishingPrs => println!("  Publishing drafts..."),
-                Phase::AddingComments => println!("  Updating comments..."),
+                Phase::Executing | Phase::AddingComments => println!("  {phase}..."),
                 _ => {}
             }
         }
@@ -55,18 +42,17 @@ impl ProgressCallback for CliProgress {
 
     async fn on_bookmark_push(&self, bookmark: &str, status: PushStatus) {
         if self.verbose {
-            match status {
+            match &status {
                 PushStatus::Started => println!("  Pushing {bookmark}..."),
                 PushStatus::Success => println!("  ✓ Pushed {bookmark}"),
-                PushStatus::AlreadySynced => println!("  - {bookmark} already synced"),
-                PushStatus::Failed(msg) => println!("  ✗ Failed to push {bookmark}: {msg}"),
+                PushStatus::AlreadySynced => println!("  - {bookmark} {status}"),
+                PushStatus::Failed(_) => println!("  ✗ Failed to push {bookmark}: {status}"),
             }
         } else {
-            match status {
+            match &status {
                 PushStatus::Started => print!("    Pushing {bookmark}... "),
                 PushStatus::Success => println!("done"),
-                PushStatus::AlreadySynced => println!("already synced"),
-                PushStatus::Failed(msg) => println!("failed: {msg}"),
+                _ => println!("{status}"),
             }
         }
     }

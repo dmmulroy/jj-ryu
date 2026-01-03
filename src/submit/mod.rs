@@ -23,5 +23,8 @@ pub use execute::{
     COMMENT_DATA_POSTFIX, COMMENT_DATA_PREFIX, StackCommentData, StackItem,
     build_stack_comment_data,
 };
-pub use plan::{PrBaseUpdate, PrToCreate, SubmissionPlan, create_submission_plan};
+pub use plan::{
+    ExecutionConstraint, ExecutionStep, PrBaseUpdate, PrToCreate, SubmissionPlan,
+    create_submission_plan,
+};
 pub use progress::{NoopProgress, Phase, ProgressCallback, PushStatus};

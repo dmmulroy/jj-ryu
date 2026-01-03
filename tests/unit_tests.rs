@@ -262,7 +262,7 @@ mod detection_test {
 
 mod plan_test {
     use crate::common::{MockPlatformService, github_config, make_linear_stack, make_pr};
-    use jj_ryu::submit::{analyze_submission, create_submission_plan};
+    use jj_ryu::submit::{ExecutionStep, analyze_submission, create_submission_plan};
 
     #[tokio::test]
     async fn test_plan_new_stack_no_existing_prs() {
@@ -276,16 +276,26 @@ mod plan_test {
             .await
             .unwrap();
 
-        assert_eq!(plan.prs_to_create.len(), 2);
-        assert!(plan.prs_to_update_base.is_empty());
+        assert_eq!(plan.count_creates(), 2);
+        assert_eq!(plan.count_updates(), 0);
+
+        // Find CreatePr steps and verify them
+        let creates: Vec<_> = plan
+            .execution_steps
+            .iter()
+            .filter_map(|s| match s {
+                ExecutionStep::CreatePr(c) => Some(c),
+                _ => None,
+            })
+            .collect();
 
         // First PR should target main
-        assert_eq!(plan.prs_to_create[0].bookmark.name, "feat-a");
-        assert_eq!(plan.prs_to_create[0].base_branch, "main");
+        assert_eq!(creates[0].bookmark.name, "feat-a");
+        assert_eq!(creates[0].base_branch, "main");
 
         // Second PR should target first bookmark
-        assert_eq!(plan.prs_to_create[1].bookmark.name, "feat-b");
-        assert_eq!(plan.prs_to_create[1].base_branch, "feat-a");
+        assert_eq!(creates[1].bookmark.name, "feat-b");
+        assert_eq!(creates[1].base_branch, "feat-a");
     }
 
     #[tokio::test]
@@ -302,13 +312,21 @@ mod plan_test {
             .await
             .unwrap();
 
-        assert_eq!(plan.prs_to_create.len(), 1);
-        assert_eq!(plan.prs_to_create[0].bookmark.name, "feat-a");
+        assert_eq!(plan.count_creates(), 1);
+        assert_eq!(plan.count_updates(), 1);
 
-        assert_eq!(plan.prs_to_update_base.len(), 1);
-        assert_eq!(plan.prs_to_update_base[0].bookmark.name, "feat-b");
-        assert_eq!(plan.prs_to_update_base[0].current_base, "main");
-        assert_eq!(plan.prs_to_update_base[0].expected_base, "feat-a");
+        let update = plan
+            .execution_steps
+            .iter()
+            .find_map(|s| match s {
+                ExecutionStep::UpdateBase(u) => Some(u),
+                _ => None,
+            })
+            .expect("should have update step");
+
+        assert_eq!(update.bookmark.name, "feat-b");
+        assert_eq!(update.current_base, "main");
+        assert_eq!(update.expected_base, "feat-a");
     }
 
     #[tokio::test]
@@ -325,9 +343,9 @@ mod plan_test {
             .await
             .unwrap();
 
-        // Nothing to create or update
-        assert!(plan.prs_to_create.is_empty());
-        assert!(plan.prs_to_update_base.is_empty());
+        // Nothing to create or update (only pushes if needed)
+        assert_eq!(plan.count_creates(), 0);
+        assert_eq!(plan.count_updates(), 0);
 
         // But we should have existing PRs tracked
         assert_eq!(plan.existing_prs.len(), 2);
@@ -357,7 +375,7 @@ mod plan_test {
             .unwrap();
 
         // Synced bookmark should not be in push list
-        assert!(plan.bookmarks_needing_push.is_empty());
+        assert_eq!(plan.count_pushes(), 0);
     }
 
     #[tokio::test]
@@ -371,8 +389,18 @@ mod plan_test {
             .await
             .unwrap();
 
-        assert_eq!(plan.bookmarks_needing_push.len(), 1);
-        assert_eq!(plan.bookmarks_needing_push[0].name, "feat-a");
+        assert_eq!(plan.count_pushes(), 1);
+
+        let push = plan
+            .execution_steps
+            .iter()
+            .find_map(|s| match s {
+                ExecutionStep::Push(b) => Some(b),
+                _ => None,
+            })
+            .expect("should have push step");
+
+        assert_eq!(push.name, "feat-a");
     }
 
     // === Mock verification tests ===
@@ -414,7 +442,7 @@ mod plan_test {
             .unwrap();
 
         // Should still need push because is_synced=false
-        assert_eq!(plan.bookmarks_needing_push.len(), 1);
+        assert_eq!(plan.count_pushes(), 1);
     }
 
     #[tokio::test]
@@ -433,12 +461,22 @@ mod plan_test {
             .unwrap();
 
         // feat-a is correct (base=main), feat-b and feat-c need updates
-        assert!(plan.prs_to_create.is_empty());
-        assert_eq!(plan.prs_to_update_base.len(), 2);
-        assert_eq!(plan.prs_to_update_base[0].bookmark.name, "feat-b");
-        assert_eq!(plan.prs_to_update_base[0].expected_base, "feat-a");
-        assert_eq!(plan.prs_to_update_base[1].bookmark.name, "feat-c");
-        assert_eq!(plan.prs_to_update_base[1].expected_base, "feat-b");
+        assert_eq!(plan.count_creates(), 0);
+        assert_eq!(plan.count_updates(), 2);
+
+        let updates: Vec<_> = plan
+            .execution_steps
+            .iter()
+            .filter_map(|s| match s {
+                ExecutionStep::UpdateBase(u) => Some(u),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(updates[0].bookmark.name, "feat-b");
+        assert_eq!(updates[0].expected_base, "feat-a");
+        assert_eq!(updates[1].bookmark.name, "feat-c");
+        assert_eq!(updates[1].expected_base, "feat-b");
     }
 
     // === Error handling tests ===
@@ -505,7 +543,7 @@ mod plan_test {
 
 mod stack_comment_test {
     use jj_ryu::submit::{
-        COMMENT_DATA_PREFIX, STACK_COMMENT_THIS_PR, StackCommentData, StackItem,
+        COMMENT_DATA_PREFIX, STACK_COMMENT_THIS_PR, StackCommentData, StackItem, SubmissionPlan,
         build_stack_comment_data, format_stack_comment,
     };
     use jj_ryu::types::{Bookmark, NarrowedBookmarkSegment, PullRequest};
@@ -543,17 +581,13 @@ mod stack_comment_test {
 
     #[test]
     fn test_build_stack_comment_data_single_pr() {
-        use jj_ryu::submit::SubmissionPlan;
-
         let plan = SubmissionPlan {
             segments: vec![NarrowedBookmarkSegment {
                 bookmark: make_bookmark("feat-a"),
                 changes: vec![],
             }],
-            bookmarks_needing_push: vec![],
-            prs_to_create: vec![],
-            prs_to_update_base: vec![],
-            prs_to_publish: vec![],
+            constraints: vec![],
+            execution_steps: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),
@@ -572,8 +606,6 @@ mod stack_comment_test {
 
     #[test]
     fn test_build_stack_comment_data_three_pr_stack() {
-        use jj_ryu::submit::SubmissionPlan;
-
         let plan = SubmissionPlan {
             segments: vec![
                 NarrowedBookmarkSegment {
@@ -589,10 +621,8 @@ mod stack_comment_test {
                     changes: vec![],
                 },
             ],
-            bookmarks_needing_push: vec![],
-            prs_to_create: vec![],
-            prs_to_update_base: vec![],
-            prs_to_publish: vec![],
+            constraints: vec![],
+            execution_steps: vec![],
             existing_prs: HashMap::new(),
             remote: "origin".to_string(),
             default_branch: "main".to_string(),

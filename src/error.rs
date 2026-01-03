@@ -84,6 +84,15 @@ pub enum Error {
     #[error("internal error: {0}")]
     Internal(String),
 
+    /// Scheduler detected a cycle in execution dependencies (indicates a bug)
+    #[error("scheduler cycle detected: {message}")]
+    SchedulerCycle {
+        /// Human-readable description
+        message: String,
+        /// Node names involved in the cycle (for debugging)
+        cycle_nodes: Vec<String>,
+    },
+
     /// Invalid command-line argument
     #[error("invalid argument: {0}")]
     InvalidArgument(String),

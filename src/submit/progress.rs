@@ -14,18 +14,24 @@ pub enum Phase {
     Analyzing,
     /// Planning what to submit
     Planning,
-    /// Pushing bookmarks to remote
-    Pushing,
-    /// Creating new PRs
-    CreatingPrs,
-    /// Updating existing PR base branches
-    UpdatingPrs,
-    /// Publishing draft PRs
-    PublishingPrs,
+    /// Executing submission operations (push, create, update, publish)
+    Executing,
     /// Adding/updating stack comments
     AddingComments,
     /// Submission complete
     Complete,
+}
+
+impl std::fmt::Display for Phase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Analyzing => write!(f, "Analyzing"),
+            Self::Planning => write!(f, "Planning"),
+            Self::Executing => write!(f, "Executing"),
+            Self::AddingComments => write!(f, "Updating stack comments"),
+            Self::Complete => write!(f, "Done"),
+        }
+    }
 }
 
 /// Push operation status
@@ -39,6 +45,17 @@ pub enum PushStatus {
     AlreadySynced,
     /// Push failed with error message
     Failed(String),
+}
+
+impl std::fmt::Display for PushStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Started => write!(f, "started"),
+            Self::Success => write!(f, "success"),
+            Self::AlreadySynced => write!(f, "already synced"),
+            Self::Failed(msg) => write!(f, "failed: {msg}"),
+        }
+    }
 }
 
 /// Progress callback trait

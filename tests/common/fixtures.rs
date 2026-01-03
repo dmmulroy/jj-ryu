@@ -78,6 +78,19 @@ pub fn make_pr(number: u64, head: &str, base: &str) -> PullRequest {
     }
 }
 
+/// Create a draft pull request
+pub fn make_pr_draft(number: u64, head: &str, base: &str) -> PullRequest {
+    PullRequest {
+        number,
+        html_url: format!("https://github.com/test/repo/pull/{number}"),
+        base_ref: base.to_string(),
+        head_ref: head.to_string(),
+        title: format!("PR for {head}"),
+        node_id: Some(format!("PR_node_{number}")),
+        is_draft: true,
+    }
+}
+
 /// Create a PR comment
 pub fn make_pr_comment(id: u64, body: &str) -> PrComment {
     PrComment {

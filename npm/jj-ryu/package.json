@@ -1,6 +1,6 @@
 {
   "name": "jj-ryu",
-  "version": "0.0.1-alpha.5",
+  "version": "0.0.1-alpha.6",
   "description": "Stacked PRs for Jujutsu with GitHub/GitLab support",
   "repository": {
     "type": "git",
@@ -18,12 +18,12 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "jj-ryu-darwin-arm64": "0.0.1-alpha.5",
-    "jj-ryu-darwin-x64": "0.0.1-alpha.5",
-    "jj-ryu-linux-arm64": "0.0.1-alpha.5",
-    "jj-ryu-linux-x64": "0.0.1-alpha.5",
-    "jj-ryu-linux-arm64-musl": "0.0.1-alpha.5",
-    "jj-ryu-linux-x64-musl": "0.0.1-alpha.5"
+    "jj-ryu-darwin-arm64": "0.0.1-alpha.6",
+    "jj-ryu-darwin-x64": "0.0.1-alpha.6",
+    "jj-ryu-linux-arm64": "0.0.1-alpha.6",
+    "jj-ryu-linux-x64": "0.0.1-alpha.6",
+    "jj-ryu-linux-arm64-musl": "0.0.1-alpha.6",
+    "jj-ryu-linux-x64-musl": "0.0.1-alpha.6"
   },
   "publishConfig": {
     "access": "public"

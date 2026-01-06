@@ -218,16 +218,19 @@ pub async fn execute_submission(
     if !bookmark_to_pr.is_empty() {
         let stack_data = build_stack_comment_data(plan, &bookmark_to_pr);
 
-        for (idx, item) in stack_data.stack.iter().enumerate() {
-            if let Err(e) =
-                create_or_update_stack_comment(platform, &stack_data, idx, item.pr_number).await
-            {
-                let msg = format!(
-                    "Failed to update stack comment for {}: {e}",
-                    item.bookmark_name
-                );
-                progress.on_error(&Error::Platform(msg.clone())).await;
-                result.soft_fail(msg);
+        // Only add stack comments if there are multiple PRs in the stack
+        if stack_data.stack.len() > 1 {
+            for (idx, item) in stack_data.stack.iter().enumerate() {
+                if let Err(e) =
+                    create_or_update_stack_comment(platform, &stack_data, idx, item.pr_number).await
+                {
+                    let msg = format!(
+                        "Failed to update stack comment for {}: {e}",
+                        item.bookmark_name
+                    );
+                    progress.on_error(&Error::Platform(msg.clone())).await;
+                    result.soft_fail(msg);
+                }
             }
         }
     }

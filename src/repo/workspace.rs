@@ -213,6 +213,27 @@ impl JjWorkspace {
         }))
     }
 
+    /// Get the change ID for a bookmark.
+    ///
+    /// Used for rename detection in tracking.
+    pub fn get_change_id(&self, bookmark: &str) -> Result<Option<String>> {
+        self.get_local_bookmark(bookmark)
+            .map(|opt| opt.map(|b| b.change_id))
+    }
+
+    /// Find the bookmark name that points to a given change ID.
+    ///
+    /// Used for rename detection - if a tracked bookmark's name no longer
+    /// matches its stored `change_id`, we search for what bookmark now points
+    /// to that `change_id`.
+    pub fn get_bookmark_for_change_id(&self, change_id: &str) -> Result<Option<String>> {
+        let bookmarks = self.local_bookmarks()?;
+        Ok(bookmarks
+            .into_iter()
+            .find(|b| b.change_id == change_id)
+            .map(|b| b.name))
+    }
+
     /// Preferred remote order for detecting default branch
     const REMOTE_PREFERENCE: &[&str] = &["origin", "upstream"];
 

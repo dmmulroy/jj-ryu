@@ -38,6 +38,7 @@ anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+toml = "0.8"
 dirs = "6"
 url = "2"
 urlencoding = "2"

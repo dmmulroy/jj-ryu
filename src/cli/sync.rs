@@ -1,4 +1,4 @@
-//! Sync command - sync all stacks with remote
+//! Sync command - sync current stack with remote
 
 use crate::cli::CliProgress;
 use crate::cli::style::{CHECK, Stylize, arrow, check, spinner_style};
@@ -12,26 +12,38 @@ use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{
     SubmissionPlan, analyze_submission, create_submission_plan, execute_submission,
 };
-use jj_ryu::types::BranchStack;
+use jj_ryu::tracking::load_tracking;
 use std::path::Path;
 use std::time::Duration;
 
 /// Options for the sync command
 #[derive(Debug, Clone, Default)]
-pub struct SyncOptions<'a> {
+pub struct SyncOptions {
     /// Dry run - show what would be done without making changes
     pub dry_run: bool,
     /// Preview plan and prompt for confirmation before executing
     pub confirm: bool,
-    /// Only sync the stack containing this bookmark
-    pub stack: Option<&'a str>,
+    /// Sync all bookmarks in `trunk()`..@ (ignore tracking)
+    pub all: bool,
 }
 
 /// Run the sync command
 #[allow(clippy::too_many_lines)]
-pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_>) -> Result<()> {
+pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions) -> Result<()> {
     // Open workspace
     let mut workspace = JjWorkspace::open(path)?;
+    let workspace_root = workspace.workspace_root().to_path_buf();
+
+    // Load tracking state (unless --all bypasses tracking)
+    let tracking = load_tracking(&workspace_root)?;
+    let tracked_names: Vec<&str> = tracking.tracked_names().into_iter().collect();
+
+    // If no bookmarks tracked and not --all, error
+    if tracked_names.is_empty() && !options.all {
+        return Err(Error::Tracking(
+            "No bookmarks tracked. Run 'ryu track' first, or use 'ryu sync --all' to sync all bookmarks.".to_string()
+        ));
+    }
 
     // Get remotes and select one
     let remotes = workspace.git_remotes()?;
@@ -64,79 +76,42 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_
         ));
     }
 
-    // Build change graph
+    // Build change graph from working copy
     let graph = build_change_graph(&workspace)?;
 
-    if graph.stacks.is_empty() {
-        println!("{}", "No stacks to sync".muted());
-        return Ok(());
-    }
-
-    // Filter stacks if --stack is specified
-    let stacks_to_sync: Vec<&BranchStack> = if let Some(stack_bookmark) = options.stack {
-        // Find the stack containing this bookmark
-        let matching_stack = graph.stacks.iter().find(|stack| {
-            stack
-                .segments
-                .iter()
-                .any(|seg| seg.bookmarks.iter().any(|b| b.name == stack_bookmark))
-        });
-
-        match matching_stack {
-            Some(stack) => vec![stack],
-            None => {
-                return Err(Error::BookmarkNotFound(format!(
-                    "Bookmark '{stack_bookmark}' not found in any stack"
-                )));
-            }
-        }
-    } else {
-        graph.stacks.iter().collect()
-    };
-
-    // Filter out stacks where all bookmarks are already synced
-    let stacks_to_sync: Vec<&BranchStack> = stacks_to_sync
-        .into_iter()
-        .filter(|stack| {
-            stack
-                .segments
-                .iter()
-                .any(|seg| seg.bookmarks.iter().any(|b| !b.has_remote || !b.is_synced))
-        })
-        .collect();
-
-    if stacks_to_sync.is_empty() {
-        println!("{}", "No stacks to sync".muted());
+    if graph.stack.is_none() {
+        println!("{}", "No stack to sync".muted());
+        println!(
+            "{}",
+            "Create bookmarks between trunk and working copy first.".muted()
+        );
         return Ok(());
     }
 
     let default_branch = workspace.default_branch()?;
     let progress = CliProgress::compact();
 
-    // Build plans for all stacks first (for confirmation)
-    let mut stack_plans: Vec<(&str, SubmissionPlan)> = Vec::new();
+    // Analyze and plan for the single stack
+    let mut analysis = analyze_submission(&graph, None)?;
 
-    for stack in &stacks_to_sync {
-        // Get the leaf bookmark (last segment, first bookmark)
-        let Some(last_segment) = stack.segments.last() else {
-            continue;
-        };
-        let Some(leaf_bm) = last_segment.bookmarks.first() else {
-            continue;
-        };
-        let leaf_bookmark = &leaf_bm.name;
-
-        let analysis = analyze_submission(&graph, leaf_bookmark)?;
-        let plan =
-            create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch)
-                .await?;
-
-        stack_plans.push((leaf_bookmark, plan));
+    // Filter to tracked bookmarks unless --all
+    if !options.all && !tracked_names.is_empty() {
+        analysis
+            .segments
+            .retain(|s| tracked_names.contains(&s.bookmark.name.as_str()));
+        if analysis.segments.is_empty() {
+            return Err(Error::Tracking(
+                "No tracked bookmarks in stack. Use 'ryu track' to track bookmarks, or 'ryu sync --all'.".to_string()
+            ));
+        }
     }
+
+    let plan =
+        create_submission_plan(&analysis, platform.as_ref(), &remote_name, &default_branch).await?;
 
     // Show confirmation if requested
     if options.confirm && !options.dry_run {
-        print_sync_preview(&stack_plans);
+        print_sync_preview(&plan);
         if !Confirm::new()
             .with_prompt("Proceed with sync?")
             .default(true)
@@ -149,27 +124,21 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_
         println!();
     }
 
-    // Sync each stack
-    let mut total_pushed = 0;
-    let mut total_created = 0;
-    let mut total_updated = 0;
+    // Execute
+    println!(
+        "{} {}",
+        "Syncing stack:".emphasis(),
+        analysis.target_bookmark.accent()
+    );
 
-    for (leaf_bookmark, plan) in stack_plans {
-        println!("{} {}", "Syncing stack:".emphasis(), leaf_bookmark.accent());
-
-        let result = execute_submission(
-            &plan,
-            &mut workspace,
-            platform.as_ref(),
-            &progress,
-            options.dry_run,
-        )
-        .await?;
-
-        total_pushed += result.pushed_bookmarks.len();
-        total_created += result.created_prs.len();
-        total_updated += result.updated_prs.len();
-    }
+    let result = execute_submission(
+        &plan,
+        &mut workspace,
+        platform.as_ref(),
+        &progress,
+        options.dry_run,
+    )
+    .await?;
 
     // Summary
     println!();
@@ -179,9 +148,9 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_
         println!(
             "{} {} pushed, {} created, {} updated",
             format!("{CHECK} Sync complete:").success(),
-            total_pushed.accent(),
-            total_created.accent(),
-            total_updated.accent()
+            result.pushed_bookmarks.len().accent(),
+            result.created_prs.len().accent(),
+            result.updated_prs.len().accent()
         );
     }
 
@@ -189,24 +158,20 @@ pub async fn run_sync(path: &Path, remote: Option<&str>, options: SyncOptions<'_
 }
 
 /// Print sync preview for --confirm
-fn print_sync_preview(stack_plans: &[(&str, SubmissionPlan)]) {
+fn print_sync_preview(plan: &SubmissionPlan) {
     println!("{}:", "Sync plan".emphasis());
     println!();
 
-    for (leaf_bookmark, plan) in stack_plans {
-        println!("{} {}", "Stack:".emphasis(), leaf_bookmark.accent());
-
-        if plan.execution_steps.is_empty() {
-            println!("  {}", "Already in sync".muted());
-            println!();
-            continue;
-        }
-
-        println!("  {}:", "Steps".emphasis());
-        for step in &plan.execution_steps {
-            println!("    {} {}", arrow(), step);
-        }
-
+    if plan.execution_steps.is_empty() {
+        println!("  {}", "Already in sync".muted());
         println!();
+        return;
     }
+
+    println!("  {}:", "Steps".emphasis());
+    for step in &plan.execution_steps {
+        println!("    {} {}", arrow(), step);
+    }
+
+    println!();
 }

@@ -24,10 +24,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Submit a bookmark stack as PRs
+    /// Submit current stack as PRs
     Submit {
-        /// Bookmark name to submit
-        bookmark: String,
+        /// Bookmark to submit up to (defaults to leaf/top of stack)
+        bookmark: Option<String>,
 
         /// Dry run - show what would be done without making changes
         #[arg(long)]
@@ -68,9 +68,13 @@ enum Commands {
         /// Git remote to push to
         #[arg(long)]
         remote: Option<String>,
+
+        /// Submit all bookmarks in `trunk()`..@ (ignore tracking)
+        #[arg(long, short)]
+        all: bool,
     },
 
-    /// Sync all stacks with remote
+    /// Sync current stack with remote
     Sync {
         /// Dry run - show what would be done without making changes
         #[arg(long)]
@@ -80,19 +84,47 @@ enum Commands {
         #[arg(long, short = 'c')]
         confirm: bool,
 
-        /// Only sync the stack containing this bookmark
-        #[arg(long)]
-        stack: Option<String>,
-
         /// Git remote to sync with
         #[arg(long)]
         remote: Option<String>,
+
+        /// Sync all bookmarks in `trunk()`..@ (ignore tracking)
+        #[arg(long, short)]
+        all: bool,
     },
 
     /// Authentication management
     Auth {
         #[command(subcommand)]
         platform: AuthPlatform,
+    },
+
+    /// Track bookmarks for submission
+    Track {
+        /// Bookmarks to track (shows available if omitted)
+        bookmarks: Vec<String>,
+
+        /// Track all bookmarks in `trunk()`..@
+        #[arg(long, short)]
+        all: bool,
+
+        /// Re-track already-tracked bookmarks (update remote)
+        #[arg(long, short)]
+        force: bool,
+
+        /// Associate with specific remote
+        #[arg(long, short)]
+        remote: Option<String>,
+    },
+
+    /// Stop tracking bookmarks
+    Untrack {
+        /// Bookmarks to untrack (shows tracked if omitted)
+        bookmarks: Vec<String>,
+
+        /// Untrack all tracked bookmarks
+        #[arg(long, short)]
+        all: bool,
     },
 }
 
@@ -140,6 +172,7 @@ async fn main() -> Result<()> {
             publish,
             select,
             remote,
+            all,
         }) => {
             // Determine scope from mutually exclusive flags (enforced by clap arg groups)
             #[allow(clippy::option_if_let_else)]
@@ -155,7 +188,7 @@ async fn main() -> Result<()> {
 
             cli::run_submit(
                 &path,
-                &bookmark,
+                bookmark.as_deref(),
                 remote.as_deref(),
                 cli::SubmitOptions {
                     dry_run,
@@ -166,6 +199,7 @@ async fn main() -> Result<()> {
                     draft,
                     publish,
                     select,
+                    all,
                 },
             )
             .await?;
@@ -173,8 +207,8 @@ async fn main() -> Result<()> {
         Some(Commands::Sync {
             dry_run,
             confirm,
-            stack,
             remote,
+            all,
         }) => {
             cli::run_sync(
                 &path,
@@ -182,7 +216,7 @@ async fn main() -> Result<()> {
                 cli::SyncOptions {
                     dry_run,
                     confirm,
-                    stack: stack.as_deref(),
+                    all,
                 },
             )
             .await?;
@@ -203,6 +237,17 @@ async fn main() -> Result<()> {
                 cli::run_auth(Platform::GitLab, action_str).await?;
             }
         },
+        Some(Commands::Track {
+            bookmarks,
+            all,
+            force,
+            remote,
+        }) => {
+            cli::run_track(&path, &bookmarks, cli::TrackOptions { all, force, remote }).await?;
+        }
+        Some(Commands::Untrack { bookmarks, all }) => {
+            cli::run_untrack(&path, &bookmarks, cli::UntrackOptions { all }).await?;
+        }
     }
 
     Ok(())

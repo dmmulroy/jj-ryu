@@ -155,6 +155,12 @@ impl TempJjRepo {
         self.run_jj(&["bookmark", "move", name, "--to", to_rev]);
     }
 
+    /// Edit (checkout) a revision, making it the working copy parent
+    #[allow(dead_code)]
+    pub fn edit(&self, rev: &str) {
+        self.run_jj(&["edit", rev]);
+    }
+
     /// Get the change ID for a bookmark
     #[allow(dead_code)]
     pub fn change_id(&self, bookmark: &str) -> String {

@@ -67,6 +67,8 @@ pub struct StackCommentData {
     pub version: u8,
     /// PRs in the stack, ordered root to leaf
     pub stack: Vec<StackItem>,
+    /// Base branch name (e.g., "main")
+    pub base_branch: String,
 }
 
 /// A single item in the stack
@@ -78,6 +80,8 @@ pub struct StackItem {
     pub pr_url: String,
     /// PR number
     pub pr_number: u64,
+    /// PR title
+    pub pr_title: String,
 }
 
 /// Prefix for stack comment data
@@ -360,11 +364,16 @@ pub fn build_stack_comment_data(
                 bookmark_name: seg.bookmark.name.clone(),
                 pr_url: pr.html_url.clone(),
                 pr_number: pr.number,
+                pr_title: pr.title.clone(),
             })
         })
         .collect();
 
-    StackCommentData { version: 0, stack }
+    StackCommentData {
+        version: 1,
+        stack,
+        base_branch: plan.default_branch.clone(),
+    }
 }
 
 /// Format the stack comment body for a PR
@@ -377,15 +386,22 @@ pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Resu
     let mut body = format!("{COMMENT_DATA_PREFIX}{encoded_data}{COMMENT_DATA_POSTFIX}\n");
 
     // Reverse order: newest/leaf at top, oldest at bottom
-    // Use plain #X format so GitHub auto-links with status indicators
+    // Format: "* PR title #N" with current PR marked with 👈 and bold
     let reversed_idx = data.stack.len() - 1 - current_idx;
     for (i, item) in data.stack.iter().rev().enumerate() {
         if i == reversed_idx {
-            let _ = writeln!(body, "* **#{} {STACK_COMMENT_THIS_PR}**", item.pr_number);
+            let _ = writeln!(
+                body,
+                "* **{} #{} {STACK_COMMENT_THIS_PR}**",
+                item.pr_title, item.pr_number
+            );
         } else {
-            let _ = writeln!(body, "* #{}", item.pr_number);
+            let _ = writeln!(body, "* {} #{}", item.pr_title, item.pr_number);
         }
     }
+
+    // Add base branch at bottom
+    let _ = writeln!(body, "* `{}`", data.base_branch);
 
     let _ = write!(
         body,
@@ -596,10 +612,12 @@ mod tests {
 
         let data = build_stack_comment_data(&plan, &bookmark_to_pr);
 
-        assert_eq!(data.version, 0);
+        assert_eq!(data.version, 1);
+        assert_eq!(data.base_branch, "main");
         assert_eq!(data.stack.len(), 2);
         assert_eq!(data.stack[0].bookmark_name, "feat-a");
         assert_eq!(data.stack[0].pr_number, 1);
+        assert_eq!(data.stack[0].pr_title, "PR for feat-a");
         assert_eq!(data.stack[1].bookmark_name, "feat-b");
         assert_eq!(data.stack[1].pr_number, 2);
     }
@@ -637,19 +655,22 @@ mod tests {
     #[test]
     fn test_format_stack_comment_marks_current() {
         let data = StackCommentData {
-            version: 0,
+            version: 1,
             stack: vec![
                 StackItem {
                     bookmark_name: "feat-a".to_string(),
                     pr_url: "https://example.com/1".to_string(),
                     pr_number: 1,
+                    pr_title: "feat: add auth".to_string(),
                 },
                 StackItem {
                     bookmark_name: "feat-b".to_string(),
                     pr_url: "https://example.com/2".to_string(),
                     pr_number: 2,
+                    pr_title: "feat: add sessions".to_string(),
                 },
             ],
+            base_branch: "main".to_string(),
         };
 
         // Format for PR #2 (index 1)
@@ -661,12 +682,14 @@ mod tests {
     #[test]
     fn test_format_stack_comment_contains_prefix() {
         let data = StackCommentData {
-            version: 0,
+            version: 1,
             stack: vec![StackItem {
                 bookmark_name: "feat-a".to_string(),
                 pr_url: "https://example.com/1".to_string(),
                 pr_number: 1,
+                pr_title: "feat: add auth".to_string(),
             }],
+            base_branch: "main".to_string(),
         };
 
         let body = format_stack_comment(&data, 0).unwrap();

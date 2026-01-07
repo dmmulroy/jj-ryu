@@ -20,6 +20,7 @@ pub mod graph;
 pub mod platform;
 pub mod repo;
 pub mod submit;
+pub mod tracking;
 pub mod types;
 
 pub use error::{Error, Result};

@@ -20,6 +20,10 @@ pub enum Error {
     #[error("bookmark '{0}' not found")]
     BookmarkNotFound(String),
 
+    /// No stack found (working copy at trunk or no bookmarks)
+    #[error("{0}")]
+    NoStack(String),
+
     /// No supported remotes (GitHub/GitLab) found
     #[error("no supported remotes found (GitHub/GitLab)")]
     NoSupportedRemotes,
@@ -96,6 +100,10 @@ pub enum Error {
     /// Invalid command-line argument
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
+
+    /// Tracking state error
+    #[error("tracking error: {0}")]
+    Tracking(String),
 }
 
 /// Result type alias for jj-ryu operations

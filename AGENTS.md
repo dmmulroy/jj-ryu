@@ -1,6 +1,6 @@
 # jj-ryu
 
-**Generated:** 2026-01-03 | **Commit:** b9f2c3b
+**Generated:** 2026-01-07 | **Commit:** 633a52f
 
 ## OVERVIEW
 
@@ -16,8 +16,9 @@ src/
 ├── submit/         # 3-phase engine: analysis → plan → execute (see AGENTS.md)
 ├── platform/       # PlatformService trait + GitHub/GitLab impls
 ├── graph/          # ChangeGraph builder from jj workspace
-├── repo/           # JjWorkspace wrapper
+├── repo/           # JjWorkspace wrapper, revset resolution, trunk() alias
 ├── auth/           # Token retrieval (gh/glab CLI integration)
+├── tracking/       # PR cache, bookmark-to-PR mapping persistence
 ├── types.rs        # Core domain types (Bookmark, PullRequest, etc.)
 └── error.rs        # thiserror Error enum
 tests/
@@ -113,6 +114,8 @@ JJ_RYU_E2E_TESTS=1 cargo test --test e2e_tests -- --ignored
 - `TempJjRepo::build_stack(&[...])` - Creates commit chain with bookmarks
 - `TempJjRepo::rebase_before(rev, before)` - Swap commits for reorder tests
 - `MockPlatformService` - Response injection, call tracking, error injection
+
+**Why no mockall**: Method return type compatibility issues. Hand-rolled `MockPlatformService` uses `Mutex<HashMap>` for response injection and call tracking.
 
 ## RELEASE
 

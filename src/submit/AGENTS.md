@@ -1,6 +1,6 @@
 # submit/
 
-**Generated:** 2026-01-03
+**Generated:** 2026-01-07
 
 ## OVERVIEW
 
@@ -76,8 +76,9 @@ if current_pos > bookmark_pos {
 
 ## TESTING
 
-Unit tests inline at bottom of `plan.rs`. Integration tests: `tests/execution_step_tests.rs`.
+Integration tests: `tests/execution_step_tests.rs`.
 
 Key tests:
 - `test_execution_steps_swap_order` - Validates swap constraint
 - `test_swap_scenario_retarget_before_push` - Full integration with `TempJjRepo`
+- `test_ten_level_stack_*` - Validates constraint scalability

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// A jj bookmark (branch reference)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,22 +72,15 @@ pub struct BranchStack {
 }
 
 /// The complete change graph for a repository
+///
+/// Represents the single linear stack from trunk to working copy.
+/// Only bookmarks between trunk and working copy are included.
 #[derive(Debug, Clone, Default)]
 pub struct ChangeGraph {
-    /// All bookmarks by name
+    /// All bookmarks in the stack by name
     pub bookmarks: HashMap<String, Bookmark>,
-    /// Map from bookmark name to change ID
-    pub bookmark_to_change_id: HashMap<String, String>,
-    /// Adjacency list: child change ID -> parent change ID (for stacking)
-    pub bookmarked_change_adjacency_list: HashMap<String, String>,
-    /// Map from bookmarked change ID to the commits in that segment
-    pub bookmarked_change_id_to_segment: HashMap<String, Vec<LogEntry>>,
-    /// Change IDs that are leaf nodes (no children)
-    pub stack_leafs: HashSet<String>,
-    /// Change IDs that are root nodes (directly on trunk)
-    pub stack_roots: HashSet<String>,
-    /// All detected stacks
-    pub stacks: Vec<BranchStack>,
+    /// The single stack from trunk to working copy (None if working copy is at trunk)
+    pub stack: Option<BranchStack>,
     /// Number of bookmarks excluded due to merge commits
     pub excluded_bookmark_count: usize,
 }

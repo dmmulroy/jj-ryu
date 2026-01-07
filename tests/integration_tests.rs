@@ -41,7 +41,7 @@ fn test_submit_help() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Submit a bookmark stack"));
+        .stdout(predicate::str::contains("Submit current stack"));
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn test_sync_help() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Sync all stacks"));
+        .stdout(predicate::str::contains("Sync current stack"));
 }
 
 #[test]
@@ -90,8 +90,8 @@ fn test_temp_repo_graph_building() {
     assert!(graph.bookmarks.contains_key("feat-b"));
 
     // Should have one stack with two segments
-    assert_eq!(graph.stacks.len(), 1);
-    assert_eq!(graph.stacks[0].segments.len(), 2);
+    let stack = graph.stack.as_ref().expect("test expects stack");
+    assert_eq!(stack.segments.len(), 2);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn test_analyze_real_repo_stack() {
     let graph = build_change_graph(&workspace).expect("build graph");
 
     // Analyze middle of stack
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     assert_eq!(analysis.target_bookmark, "feat-b");
     assert_eq!(analysis.segments.len(), 2);
@@ -122,7 +122,7 @@ async fn test_full_submit_flow_new_stack() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     // Mock returns None for all find_existing_pr calls (default behavior)
     let mock = MockPlatformService::with_config(github_config());
@@ -161,7 +161,7 @@ async fn test_submit_flow_partial_existing_prs() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // First PR exists
@@ -198,7 +198,7 @@ async fn test_submit_flow_base_update_needed() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // Both PRs exist
@@ -237,7 +237,7 @@ fn test_single_bookmark_stack() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-a").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-a")).expect("analyze");
 
     assert_eq!(analysis.segments.len(), 1);
     assert_eq!(analysis.segments[0].bookmark.name, "feat-a");
@@ -256,7 +256,7 @@ fn test_empty_repo_no_bookmarks() {
     let graph = build_change_graph(&workspace).expect("build graph");
 
     // Should have no stacks
-    assert!(graph.stacks.is_empty());
+    assert!(graph.stack.is_none());
     assert!(graph.bookmarks.is_empty());
 }
 
@@ -272,13 +272,13 @@ fn test_three_level_deep_stack() {
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
 
-    assert_eq!(graph.stacks.len(), 1);
-    assert_eq!(graph.stacks[0].segments.len(), 3);
+    let stack = graph.stack.as_ref().expect("test expects stack");
+    assert_eq!(stack.segments.len(), 3);
 
     // Verify ordering: root to leaf
-    assert_eq!(graph.stacks[0].segments[0].bookmarks[0].name, "feat-a");
-    assert_eq!(graph.stacks[0].segments[1].bookmarks[0].name, "feat-b");
-    assert_eq!(graph.stacks[0].segments[2].bookmarks[0].name, "feat-c");
+    assert_eq!(stack.segments[0].bookmarks[0].name, "feat-a");
+    assert_eq!(stack.segments[1].bookmarks[0].name, "feat-b");
+    assert_eq!(stack.segments[2].bookmarks[0].name, "feat-c");
 }
 
 #[tokio::test]
@@ -292,7 +292,7 @@ async fn test_plan_verifies_pr_queries_for_stack() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-c").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-c")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
 
@@ -311,7 +311,7 @@ async fn test_plan_pr_numbers_increment() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
 

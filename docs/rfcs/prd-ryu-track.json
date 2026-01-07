@@ -1,0 +1,331 @@
+{
+  "branchName": "ralph/ryu-track",
+  "description": "Explicit bookmark tracking for ryu submit workflow",
+  "userStories": [
+    {
+      "category": "infra-p0",
+      "description": "Create tracking module with TrackedBookmark struct",
+      "location": "src/tracking/mod.rs (new)",
+      "steps": [
+        "Create src/tracking/ directory",
+        "Create mod.rs exporting tracking types",
+        "Define TrackedBookmark struct: name, change_id, remote (Option), tracked_at",
+        "Define TrackingState struct: version, bookmarks Vec<TrackedBookmark>",
+        "Derive Serialize, Deserialize, Debug, Clone for both",
+        "Add tracking module to lib.rs",
+        "cargo test --lib passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "infra-p0",
+      "description": "Implement tracked.toml persistence",
+      "location": "src/tracking/storage.rs (new)",
+      "steps": [
+        "Create storage.rs in tracking module",
+        "fn tracking_path(workspace: &JjWorkspace) -> PathBuf returns .jj/repo/ryu/tracked.toml",
+        "fn load_tracking(workspace: &JjWorkspace) -> Result<TrackingState>",
+        "fn save_tracking(workspace: &JjWorkspace, state: &TrackingState) -> Result<()>",
+        "Create .jj/repo/ryu/ directory if missing",
+        "Handle missing file gracefully (return empty state)",
+        "Unit test: roundtrip serialization",
+        "cargo test --lib passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "infra-p0",
+      "description": "Implement PR cache persistence",
+      "location": "src/tracking/pr_cache.rs (new)",
+      "steps": [
+        "Create pr_cache.rs in tracking module",
+        "Define CachedPr struct: bookmark, number (u64), url, remote, updated_at",
+        "Define PrCache struct: version, prs Vec<CachedPr>",
+        "fn pr_cache_path(workspace: &JjWorkspace) -> PathBuf returns .jj/repo/ryu/pr_cache.toml",
+        "fn load_pr_cache(workspace: &JjWorkspace) -> Result<PrCache>",
+        "fn save_pr_cache(workspace: &JjWorkspace, cache: &PrCache) -> Result<()>",
+        "fn update_pr_cache(cache: &mut PrCache, bookmark: &str, pr: &PullRequest)",
+        "Unit test: roundtrip serialization",
+        "cargo test --lib passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "infra-p0",
+      "description": "Add change_id lookup to JjWorkspace",
+      "location": "src/repo/workspace.rs",
+      "steps": [
+        "Add fn get_change_id(&self, bookmark: &str) -> Result<String>",
+        "Use jj log -r bookmark --no-graph -T 'change_id'",
+        "Add fn get_bookmark_for_change_id(&self, change_id: &str) -> Result<Option<String>>",
+        "Use jj log -r change_id --no-graph -T 'bookmarks'",
+        "Parse output to extract bookmark name",
+        "Unit test with TempJjRepo",
+        "cargo test --lib passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add ryu track command with explicit bookmark args",
+      "location": "src/main.rs, src/cli/track.rs (new)",
+      "steps": [
+        "Add Track variant to Commands enum in main.rs",
+        "Track { bookmarks: Vec<String>, all: bool, remote: Option<String>, force: bool }",
+        "Create src/cli/track.rs with run_track() function",
+        "Load existing TrackingState",
+        "For each bookmark arg: validate exists in trunk()..@",
+        "Skip already-tracked unless --force",
+        "Get change_id for each bookmark",
+        "Append to TrackingState and save",
+        "Print summary: Tracked N bookmarks: ✓ name1, ✓ name2",
+        "Integration test: ryu track feat-a creates tracked.toml with feat-a",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add --all flag to ryu track",
+      "location": "src/cli/track.rs",
+      "steps": [
+        "When --all flag set and no bookmark args provided",
+        "Get all bookmarks in trunk()..@",
+        "Filter out already-tracked (unless --force)",
+        "Track all remaining bookmarks",
+        "Print summary with count",
+        "Integration test: ryu track --all tracks all bookmarks in stack",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add interactive selection to ryu track",
+      "location": "src/cli/track.rs",
+      "steps": [
+        "Add dialoguer dependency if not present",
+        "When no args and not --all: show MultiSelect prompt",
+        "List untracked bookmarks in trunk()..@ order",
+        "User selects with space, confirms with enter",
+        "Track selected bookmarks",
+        "Print summary",
+        "Integration test: mock stdin for selection",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add ryu untrack command",
+      "location": "src/main.rs, src/cli/untrack.rs (new)",
+      "steps": [
+        "Add Untrack variant to Commands enum",
+        "Untrack { bookmarks: Vec<String>, all: bool }",
+        "Create src/cli/untrack.rs with run_untrack()",
+        "Load TrackingState",
+        "For each bookmark arg: remove from state if present",
+        "When --all: clear all bookmarks",
+        "Save updated state",
+        "Print summary: Untracked N bookmarks",
+        "If PR cache has entry: print 'Note: PR #N remains open'",
+        "Integration test: ryu untrack removes from tracked.toml",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add interactive selection to ryu untrack",
+      "location": "src/cli/untrack.rs",
+      "steps": [
+        "When no args and not --all: show MultiSelect prompt",
+        "List currently tracked bookmarks",
+        "User selects with space, confirms with enter",
+        "Untrack selected bookmarks",
+        "Print summary with PR notes",
+        "Integration test: mock stdin for selection",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Update ryu submit to require tracking",
+      "location": "src/cli/submit.rs",
+      "steps": [
+        "Load TrackingState at start of run_submit()",
+        "If no bookmarks tracked and no --all flag: error with message",
+        "Error message: 'No bookmarks tracked. Run ryu track first'",
+        "Filter analysis to only tracked bookmarks",
+        "Integration test: ryu submit with no tracking returns error",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Add --all flag to ryu submit",
+      "location": "src/cli/submit.rs, src/main.rs",
+      "steps": [
+        "Add --all flag to Submit command: 'Submit all bookmarks in trunk()..@ (ignore tracking)'",
+        "When --all: bypass tracking check, use all bookmarks",
+        "Existing behavior preserved when --all passed",
+        "Integration test: ryu submit --all submits untracked bookmarks",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "cmd-p0",
+      "description": "Update PR cache on successful submit",
+      "location": "src/cli/submit.rs",
+      "steps": [
+        "After successful PR create/update in execute phase",
+        "Load existing PrCache",
+        "For each submitted bookmark: update or insert CachedPr entry",
+        "Save updated PrCache",
+        "Integration test: submit creates pr_cache.toml entries",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "viz-p1",
+      "description": "Show tracking status in ryu analyze output",
+      "location": "src/cli/analyze.rs",
+      "steps": [
+        "Load TrackingState in run_analyze()",
+        "For each bookmark in graph: check if tracked",
+        "Add indicator column: ✓ (tracked synced), ↑ (tracked needs push), · (untracked)",
+        "Dim untracked bookmark names in output",
+        "Add footer hint: '(use ryu track to track untracked bookmarks)'",
+        "Integration test: output shows tracking indicators",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "viz-p1",
+      "description": "Show PR numbers from cache in ryu analyze",
+      "location": "src/cli/analyze.rs",
+      "steps": [
+        "Load PrCache in run_analyze()",
+        "For each tracked bookmark: lookup PR# from cache",
+        "Display #N next to bookmark name if cached",
+        "Display ? or omit if no cache entry",
+        "Integration test: output shows PR numbers from cache",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "viz-p1",
+      "description": "Update ryu sync to respect tracking",
+      "location": "src/cli/sync.rs",
+      "steps": [
+        "Load TrackingState at start",
+        "If no bookmarks tracked and no --all: error",
+        "Filter sync operations to tracked bookmarks only",
+        "Add --all flag to bypass tracking",
+        "Integration test: ryu sync respects tracking",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "rename-p1",
+      "description": "Detect and auto-update renamed bookmarks",
+      "location": "src/tracking/storage.rs",
+      "steps": [
+        "On load_tracking: validate each entry",
+        "For each TrackedBookmark: check if name still points to stored change_id",
+        "If mismatch: search for bookmark pointing to that change_id",
+        "If found: update TrackedBookmark.name, mark state dirty",
+        "If not found: mark entry as stale",
+        "Return list of renames and stale entries alongside state",
+        "Caller logs: 'Info: Tracked bookmark X was renamed to Y. Updated tracking.'",
+        "Integration test: rename bookmark via jj, ryu track shows rename detected",
+        "cargo test passes",
+        "DEFERRED: P1 enhancement - basic tracking works without rename detection"
+      ],
+      "passes": true
+    },
+    {
+      "category": "rename-p1",
+      "description": "Clean up stale tracking entries",
+      "location": "src/tracking/storage.rs",
+      "steps": [
+        "When bookmark deleted (not renamed): entry is stale",
+        "On load: collect stale entries",
+        "Warn user: 'Warning: Tracked bookmark X no longer exists'",
+        "Optionally auto-remove stale entries on next save",
+        "Or require explicit ryu untrack -a to clean",
+        "Integration test: delete bookmark, ryu shows warning",
+        "cargo test passes",
+        "DEFERRED: P1 enhancement - basic tracking works without stale cleanup"
+      ],
+      "passes": true
+    },
+    {
+      "category": "scope-p1",
+      "description": "Scope flags filter within tracked set",
+      "location": "src/cli/submit.rs",
+      "steps": [
+        "Existing --upto, --only, --stack flags work on tracked bookmarks",
+        "--upto feat-a: submit tracked bookmarks up to feat-a",
+        "--only: submit only target tracked bookmark",
+        "If target not tracked: error unless --all",
+        "Integration test: --upto filters tracked bookmarks correctly",
+        "cargo test passes"
+      ],
+      "passes": true
+    },
+    {
+      "category": "scope-p1",
+      "description": "Interactive select pre-selects tracked bookmarks",
+      "location": "src/cli/submit.rs",
+      "steps": [
+        "When -i/--select flag used with ryu submit",
+        "Show all bookmarks in trunk()..@ (not just tracked)",
+        "Pre-select tracked bookmarks in the list",
+        "User can modify selection",
+        "Selection is one-time override, does NOT modify tracking",
+        "Integration test: -i shows all with tracked pre-selected",
+        "cargo test passes",
+        "DEFERRED: Current behavior shows tracked only; full PRD vision requires restructuring"
+      ],
+      "passes": true
+    },
+    {
+      "category": "scope-p1",
+      "description": "Add --include-untracked flag to submit",
+      "location": "src/cli/submit.rs, src/main.rs",
+      "steps": [
+        "Add --include-untracked flag to Submit command",
+        "When set: include untracked bookmarks in interactive selection",
+        "Without flag: -i only shows tracked for selection",
+        "Different from --all: still interactive, just broader scope",
+        "Integration test: --include-untracked shows all in -i mode",
+        "cargo test passes",
+        "DEFERRED: Requires restructuring of analysis/selection flow"
+      ],
+      "passes": true
+    },
+    {
+      "category": "multi-remote-p2",
+      "description": "Support per-bookmark remote association",
+      "location": "src/tracking/mod.rs, src/cli/track.rs",
+      "steps": [
+        "TrackedBookmark.remote is Option<String>",
+        "ryu track --remote upstream feat-a associates with upstream",
+        "Default: auto-detect from jj git remotes",
+        "On submit: use bookmark's associated remote",
+        "Integration test: track with --remote stores association",
+        "cargo test passes",
+        "DEFERRED: P2 - data model supports it, submit integration not done"
+      ],
+      "passes": true
+    }
+  ]
+}

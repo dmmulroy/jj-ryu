@@ -121,15 +121,12 @@ pub fn gitlab_config() -> PlatformConfig {
 
 /// Build a linear stack graph: trunk -> bm1 -> bm2 -> bm3
 ///
-/// Returns a `ChangeGraph` with properly connected segments.
+/// Returns a `ChangeGraph` with a single stack containing the given bookmarks.
 pub fn make_linear_stack(names: &[&str]) -> ChangeGraph {
     let mut bookmarks = HashMap::new();
-    let mut bookmark_to_change_id = HashMap::new();
-    let mut adjacency = HashMap::new();
-    let mut change_to_segment = HashMap::new();
     let mut segments = Vec::new();
 
-    for (i, name) in names.iter().enumerate() {
+    for name in names {
         let change_id = format!("{name}_change");
         let commit_id = format!("{name}_commit");
 
@@ -142,14 +139,6 @@ pub fn make_linear_stack(names: &[&str]) -> ChangeGraph {
         );
 
         bookmarks.insert(name.to_string(), bm.clone());
-        bookmark_to_change_id.insert(name.to_string(), change_id.clone());
-        change_to_segment.insert(change_id.clone(), vec![log_entry.clone()]);
-
-        // Link to parent (previous bookmark's change_id)
-        if i > 0 {
-            let parent_change_id = format!("{}_change", names[i - 1]);
-            adjacency.insert(change_id.clone(), parent_change_id);
-        }
 
         segments.push(BookmarkSegment {
             bookmarks: vec![bm],
@@ -157,17 +146,9 @@ pub fn make_linear_stack(names: &[&str]) -> ChangeGraph {
         });
     }
 
-    let leaf_id = format!("{}_change", names.last().unwrap());
-    let root_id = format!("{}_change", names[0]);
-
     ChangeGraph {
         bookmarks,
-        bookmark_to_change_id,
-        bookmarked_change_adjacency_list: adjacency,
-        bookmarked_change_id_to_segment: change_to_segment,
-        stack_leafs: std::iter::once(leaf_id).collect(),
-        stack_roots: std::iter::once(root_id).collect(),
-        stacks: vec![BranchStack { segments }],
+        stack: Some(BranchStack { segments }),
         excluded_bookmark_count: 0,
     }
 }
@@ -187,11 +168,6 @@ pub fn make_multi_bookmark_segment(names: &[&str]) -> ChangeGraph {
         })
         .collect();
 
-    let bookmark_to_change_id: HashMap<String, String> = names
-        .iter()
-        .map(|name| (name.to_string(), change_id.clone()))
-        .collect();
-
     let log_entry = make_log_entry_with_ids("Shared commit", &commit_id, &change_id, names);
 
     let segment = BookmarkSegment {
@@ -199,22 +175,14 @@ pub fn make_multi_bookmark_segment(names: &[&str]) -> ChangeGraph {
             .iter()
             .map(|n| make_bookmark_with_ids(n, &commit_id, &change_id))
             .collect(),
-        changes: vec![log_entry.clone()],
+        changes: vec![log_entry],
     };
-
-    let mut change_to_segment = HashMap::new();
-    change_to_segment.insert(change_id.clone(), vec![log_entry]);
 
     ChangeGraph {
         bookmarks,
-        bookmark_to_change_id,
-        bookmarked_change_adjacency_list: HashMap::new(),
-        bookmarked_change_id_to_segment: change_to_segment,
-        stack_leafs: std::iter::once(change_id.clone()).collect(),
-        stack_roots: std::iter::once(change_id).collect(),
-        stacks: vec![BranchStack {
+        stack: Some(BranchStack {
             segments: vec![segment],
-        }],
+        }),
         excluded_bookmark_count: 0,
     }
 }

@@ -16,46 +16,60 @@ pub struct SubmissionAnalysis {
 
 /// Analyze what needs to be submitted for a given bookmark
 ///
-/// This finds the stack containing the target bookmark and returns
-/// all segments from trunk up to and including the target, with each
-/// segment narrowed to a single bookmark using heuristics when multiple
-/// bookmarks point to the same commit.
+/// Works with single-stack semantics: the graph contains only one stack
+/// from trunk to working copy. If `target_bookmark` is None, submits the
+/// entire stack (leaf bookmark). If specified, submits up to that bookmark.
 pub fn analyze_submission(
     graph: &ChangeGraph,
-    target_bookmark: &str,
+    target_bookmark: Option<&str>,
 ) -> Result<SubmissionAnalysis> {
-    // Find which stack contains the target bookmark
-    for stack in &graph.stacks {
-        let target_index = stack
-            .segments
-            .iter()
-            .position(|segment| segment.bookmarks.iter().any(|b| b.name == target_bookmark));
+    let stack = graph
+        .stack
+        .as_ref()
+        .ok_or_else(|| Error::NoStack("No bookmarks found between trunk and working copy. Create a bookmark with: jj bookmark create <name>".to_string()))?;
 
-        if let Some(idx) = target_index {
-            // Get segments from trunk (index 0) to target (inclusive)
-            let relevant_segments = &stack.segments[0..=idx];
-
-            // Narrow each segment to a single bookmark using heuristics
-            let narrowed: Vec<NarrowedBookmarkSegment> = relevant_segments
-                .iter()
-                .map(|segment| {
-                    let bookmark = select_bookmark_for_segment(segment, Some(target_bookmark));
-
-                    NarrowedBookmarkSegment {
-                        bookmark,
-                        changes: segment.changes.clone(),
-                    }
-                })
-                .collect();
-
-            return Ok(SubmissionAnalysis {
-                target_bookmark: target_bookmark.to_string(),
-                segments: narrowed,
-            });
-        }
+    if stack.segments.is_empty() {
+        return Err(Error::NoStack("Stack has no segments".to_string()));
     }
 
-    Err(Error::BookmarkNotFound(target_bookmark.to_string()))
+    // Determine target index
+    let target_index = if let Some(target) = target_bookmark {
+        stack
+            .segments
+            .iter()
+            .position(|segment| segment.bookmarks.iter().any(|b| b.name == target))
+            .ok_or_else(|| Error::BookmarkNotFound(target.to_string()))?
+    } else {
+        // No target specified - use leaf (last segment)
+        stack.segments.len() - 1
+    };
+
+    // Get segments from trunk (index 0) to target (inclusive)
+    let relevant_segments = &stack.segments[0..=target_index];
+
+    // Narrow each segment to a single bookmark using heuristics
+    let narrowed: Vec<NarrowedBookmarkSegment> = relevant_segments
+        .iter()
+        .map(|segment| {
+            let bookmark = select_bookmark_for_segment(segment, target_bookmark);
+
+            NarrowedBookmarkSegment {
+                bookmark,
+                changes: segment.changes.clone(),
+            }
+        })
+        .collect();
+
+    // Use the actual selected bookmark name for the target
+    let actual_target = narrowed
+        .last()
+        .map(|s| s.bookmark.name.clone())
+        .unwrap_or_default();
+
+    Ok(SubmissionAnalysis {
+        target_bookmark: actual_target,
+        segments: narrowed,
+    })
 }
 
 /// Select a single bookmark from a segment using heuristics
@@ -199,7 +213,6 @@ mod tests {
     use super::*;
     use crate::types::{BookmarkSegment, BranchStack, LogEntry};
     use chrono::Utc;
-    use std::collections::{HashMap, HashSet};
 
     fn make_bookmark(name: &str) -> Bookmark {
         Bookmark {
@@ -249,16 +262,11 @@ mod tests {
             bookmarks: [("feat-a".to_string(), bm1), ("feat-b".to_string(), bm2)]
                 .into_iter()
                 .collect(),
-            bookmark_to_change_id: HashMap::new(),
-            bookmarked_change_adjacency_list: HashMap::new(),
-            bookmarked_change_id_to_segment: HashMap::new(),
-            stack_leafs: HashSet::new(),
-            stack_roots: HashSet::new(),
-            stacks: vec![stack],
+            stack: Some(stack),
             excluded_bookmark_count: 0,
         };
 
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
         assert_eq!(analysis.target_bookmark, "feat-b");
         assert_eq!(analysis.segments.len(), 2);
         assert_eq!(analysis.segments[0].bookmark.name, "feat-a");
@@ -266,9 +274,62 @@ mod tests {
     }
 
     #[test]
-    fn test_analyze_submission_not_found() {
+    fn test_analyze_submission_no_target_uses_leaf() {
+        let bm1 = make_bookmark("feat-a");
+        let bm2 = make_bookmark("feat-b");
+
+        let stack = BranchStack {
+            segments: vec![
+                BookmarkSegment {
+                    bookmarks: vec![bm1.clone()],
+                    changes: vec![make_log_entry("First change", &["feat-a"])],
+                },
+                BookmarkSegment {
+                    bookmarks: vec![bm2.clone()],
+                    changes: vec![make_log_entry("Second change", &["feat-b"])],
+                },
+            ],
+        };
+
+        let graph = ChangeGraph {
+            bookmarks: [("feat-a".to_string(), bm1), ("feat-b".to_string(), bm2)]
+                .into_iter()
+                .collect(),
+            stack: Some(stack),
+            excluded_bookmark_count: 0,
+        };
+
+        // No target - should use leaf (feat-b)
+        let analysis = analyze_submission(&graph, None).unwrap();
+        assert_eq!(analysis.target_bookmark, "feat-b");
+        assert_eq!(analysis.segments.len(), 2);
+    }
+
+    #[test]
+    fn test_analyze_submission_no_stack() {
         let graph = ChangeGraph::default();
-        let result = analyze_submission(&graph, "nonexistent");
+        let result = analyze_submission(&graph, None);
+        assert!(matches!(result, Err(Error::NoStack(_))));
+    }
+
+    #[test]
+    fn test_analyze_submission_bookmark_not_found() {
+        let bm1 = make_bookmark("feat-a");
+
+        let stack = BranchStack {
+            segments: vec![BookmarkSegment {
+                bookmarks: vec![bm1.clone()],
+                changes: vec![make_log_entry("First change", &["feat-a"])],
+            }],
+        };
+
+        let graph = ChangeGraph {
+            bookmarks: std::iter::once(("feat-a".to_string(), bm1)).collect(),
+            stack: Some(stack),
+            excluded_bookmark_count: 0,
+        };
+
+        let result = analyze_submission(&graph, Some("nonexistent"));
         assert!(matches!(result, Err(Error::BookmarkNotFound(_))));
     }
 

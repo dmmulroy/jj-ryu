@@ -10,9 +10,10 @@ use jj_ryu::platform::{PlatformService, create_platform_service, parse_repo_info
 use jj_ryu::repo::{JjWorkspace, select_remote};
 use jj_ryu::submit::{
     ExecutionStep, SubmissionAnalysis, SubmissionPlan, analyze_submission, create_submission_plan,
-    execute_submission,
+    execute_submission, select_bookmark_for_segment,
 };
-use jj_ryu::types::ChangeGraph;
+use jj_ryu::tracking::{load_pr_cache, load_tracking, save_pr_cache};
+use jj_ryu::types::{ChangeGraph, NarrowedBookmarkSegment};
 use std::path::Path;
 
 /// Scope of bookmark submission (mutually exclusive options)
@@ -60,13 +61,15 @@ pub struct SubmitOptions<'a> {
     pub publish: bool,
     /// Interactively select which bookmarks to submit
     pub select: bool,
+    /// Submit all bookmarks in `trunk()`..@ (ignore tracking)
+    pub all: bool,
 }
 
 /// Run the submit command
 #[allow(clippy::too_many_lines)]
 pub async fn run_submit(
     path: &Path,
-    bookmark: &str,
+    bookmark: Option<&str>,
     remote: Option<&str>,
     options: SubmitOptions<'_>,
 ) -> Result<()> {
@@ -79,6 +82,18 @@ pub async fn run_submit(
 
     // Open workspace
     let mut workspace = JjWorkspace::open(path)?;
+    let workspace_root = workspace.workspace_root().to_path_buf();
+
+    // Load tracking state (unless --all bypasses tracking)
+    let tracking = load_tracking(&workspace_root)?;
+    let tracked_names: Vec<&str> = tracking.tracked_names().into_iter().collect();
+
+    // If no bookmarks tracked and not --all, error
+    if tracked_names.is_empty() && !options.all {
+        return Err(Error::Tracking(
+            "No bookmarks tracked. Run 'ryu track' first, or use 'ryu submit --all' to submit all bookmarks.".to_string()
+        ));
+    }
 
     // Get remotes and select one
     let remotes = workspace.git_remotes()?;
@@ -95,21 +110,43 @@ pub async fn run_submit(
     // Create platform service
     let platform = create_platform_service(&platform_config).await?;
 
-    // Build change graph
+    // Build change graph from working copy
     let graph = build_change_graph(&workspace)?;
 
-    if graph.bookmarks.is_empty() {
-        println!("{}", "No bookmarks found in repository".muted());
+    // Check if we have a stack
+    if graph.stack.is_none() {
+        println!(
+            "{}",
+            "No bookmarks found between trunk and working copy.".muted()
+        );
+        println!(
+            "{}",
+            "Create a bookmark with: jj bookmark create <name>".muted()
+        );
         return Ok(());
     }
 
-    // Check if target bookmark exists
-    if !graph.bookmarks.contains_key(bookmark) {
-        return Err(Error::BookmarkNotFound(bookmark.to_string()));
+    // If bookmark specified, verify it exists in stack
+    if let Some(bm) = bookmark {
+        if !graph.bookmarks.contains_key(bm) {
+            return Err(Error::BookmarkNotFound(bm.to_string()));
+        }
     }
 
     // Analyze submission based on options
-    let analysis = build_analysis(&graph, bookmark, &options, platform.as_ref()).await?;
+    let mut analysis = build_analysis(&graph, bookmark, &options, platform.as_ref()).await?;
+
+    // Filter to tracked bookmarks unless --all
+    if !options.all && !tracked_names.is_empty() {
+        analysis
+            .segments
+            .retain(|s| tracked_names.contains(&s.bookmark.name.as_str()));
+        if analysis.segments.is_empty() {
+            return Err(Error::Tracking(
+                "No tracked bookmarks in submission scope. Use 'ryu track' to track bookmarks, or 'ryu submit --all'.".to_string()
+            ));
+        }
+    }
 
     // Display what will be submitted
     print_submission_summary(&analysis, &options);
@@ -160,6 +197,16 @@ pub async fn run_submit(
     )
     .await?;
 
+    // Update PR cache with results
+    if !options.dry_run && result.success {
+        let mut pr_cache = load_pr_cache(&workspace_root).unwrap_or_default();
+        for pr in result.created_prs.iter().chain(result.updated_prs.iter()) {
+            pr_cache.upsert(&pr.head_ref, pr, &remote_name);
+        }
+        // Best effort - don't fail submit if cache write fails
+        let _ = save_pr_cache(&workspace_root, &pr_cache);
+    }
+
     // Summary
     if !options.dry_run {
         println!();
@@ -200,12 +247,17 @@ pub async fn run_submit(
 /// Build submission analysis based on options
 async fn build_analysis(
     graph: &ChangeGraph,
-    bookmark: &str,
+    bookmark: Option<&str>,
     options: &SubmitOptions<'_>,
     platform: &dyn PlatformService,
 ) -> Result<SubmissionAnalysis> {
-    // Start with standard analysis
+    // Start with standard analysis (uses bookmark or leaf if None)
     let mut analysis = analyze_submission(graph, bookmark)?;
+    debug_assert!(
+        !analysis.segments.is_empty(),
+        "analyze_submission returns Ok only if segments exist"
+    );
+    let target = analysis.target_bookmark.clone();
 
     match options.scope {
         SubmitScope::Default => {}
@@ -228,7 +280,7 @@ async fn build_analysis(
                 }
                 None => {
                     return Err(Error::InvalidArgument(format!(
-                        "Bookmark '{upto_bookmark}' not found in stack ancestors of '{bookmark}'"
+                        "Bookmark '{upto_bookmark}' not found in stack"
                     )));
                 }
             }
@@ -239,12 +291,10 @@ async fn build_analysis(
             let target_idx = analysis
                 .segments
                 .iter()
-                .position(|s| s.bookmark.name == bookmark);
+                .position(|s| s.bookmark.name == target);
 
             let target_idx = target_idx.ok_or_else(|| {
-                Error::InvalidArgument(format!(
-                    "Target bookmark '{bookmark}' not found in analysis"
-                ))
+                Error::InvalidArgument(format!("Target bookmark '{target}' not found in analysis"))
             })?;
 
             // If not the first segment, verify parent has a PR
@@ -264,69 +314,37 @@ async fn build_analysis(
         }
 
         SubmitScope::Stack => {
-            // Handle --stack (upstack): include descendants
-            let descendants = find_all_descendants(graph, bookmark);
-            for descendant_name in descendants {
-                // Get analysis for each descendant and merge segments
-                if let Ok(desc_analysis) = analyze_submission(graph, &descendant_name) {
-                    // Add segments that aren't already in our analysis
-                    for segment in desc_analysis.segments {
-                        if !analysis
-                            .segments
-                            .iter()
-                            .any(|s| s.bookmark.name == segment.bookmark.name)
-                        {
-                            analysis.segments.push(segment);
-                        }
-                    }
-                }
+            // Handle --stack (upstack): include all segments from target to leaf
+            // With single-stack semantics, we can use graph.stack directly
+            let stack = graph
+                .stack
+                .as_ref()
+                .expect("stack existence checked before build_analysis");
+
+            // Find target position in the full stack
+            let target_idx = stack
+                .segments
+                .iter()
+                .position(|s| s.bookmarks.iter().any(|b| b.name == target))
+                .expect("target was set by analyze_submission");
+
+            // Build narrowed segments from target to leaf (skip segments before target)
+            analysis.segments = stack.segments[target_idx..]
+                .iter()
+                .map(|segment| NarrowedBookmarkSegment {
+                    bookmark: select_bookmark_for_segment(segment, Some(&target)),
+                    changes: segment.changes.clone(),
+                })
+                .collect();
+
+            // Update target to reflect the new leaf
+            if let Some(last) = analysis.segments.last() {
+                analysis.target_bookmark.clone_from(&last.bookmark.name);
             }
         }
     }
 
     Ok(analysis)
-}
-
-/// Find all descendant bookmarks (across all branching stacks)
-///
-/// Note: This function operates on linear stacks only. The graph builder
-/// excludes merge commits, so diamond topologies are not represented.
-fn find_all_descendants(graph: &ChangeGraph, bookmark: &str) -> Vec<String> {
-    use std::collections::HashSet;
-
-    let mut seen = HashSet::new();
-
-    // Get the change_id for this bookmark
-    let Some(bookmark_change_id) = graph.bookmark_to_change_id.get(bookmark) else {
-        return Vec::new();
-    };
-
-    // For each stack, check if our bookmark appears in the path
-    for stack in &graph.stacks {
-        let mut found_bookmark = false;
-        for segment in &stack.segments {
-            // Check if any bookmark in this segment matches
-            if segment
-                .bookmarks
-                .iter()
-                .any(|b| graph.bookmark_to_change_id.get(&b.name) == Some(bookmark_change_id))
-            {
-                found_bookmark = true;
-                continue; // Skip the bookmark itself
-            }
-
-            // After finding our bookmark, all subsequent bookmarks are descendants
-            if found_bookmark {
-                for b in &segment.bookmarks {
-                    if b.name != bookmark {
-                        seen.insert(b.name.clone());
-                    }
-                }
-            }
-        }
-    }
-
-    seen.into_iter().collect()
 }
 
 /// Apply plan modifications based on options

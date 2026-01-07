@@ -1,4 +1,5 @@
 /target
+.DS_Store
 
 # Generated npm platform packages
 /npm/darwin-arm64/
@@ -9,3 +10,5 @@
 /npm/linux-x64-musl/
 /npm/win32-arm64/
 /npm/win32-x64/
+
+.opencode

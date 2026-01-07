@@ -48,12 +48,15 @@ async fn test_swap_scenario_retarget_before_push() {
     // Swap the stack: rebase B before A, making order B→A
     repo.rebase_before("feat-b", "feat-a");
 
+    // Move working copy to the new leaf (feat-a) after swap
+    repo.edit("feat-a");
+
     // Now the stack is B→A in the jj repo
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
 
     // Analyze submitting A (the new leaf)
-    let analysis = analyze_submission(&graph, "feat-a").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-a")).expect("analyze");
 
     // Verify the analysis reflects the new order: B is root, A is leaf
     assert_eq!(analysis.segments.len(), 2);
@@ -128,7 +131,7 @@ async fn test_three_level_swap_middle_to_root() {
     let graph = build_change_graph(&workspace).expect("build graph");
 
     // Submit from C (should include B→A→C or similar reordered stack)
-    let analysis = analyze_submission(&graph, "feat-c").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-c")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // All PRs exist with old bases
@@ -162,7 +165,7 @@ async fn test_push_order_follows_stack_structure() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-d").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-d")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // No existing PRs - all need push and create
@@ -212,7 +215,7 @@ async fn test_create_order_respects_stack_for_comment_linking() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-c").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-c")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // No existing PRs
@@ -252,7 +255,7 @@ async fn test_push_before_create_constraint() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-a").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-a")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
 
@@ -286,7 +289,7 @@ async fn test_push_before_retarget_constraint() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // B's PR exists but has wrong base (main instead of feat-a)
@@ -336,7 +339,7 @@ async fn test_partial_existing_prs_mixed_operations() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-c").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-c")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // A: PR exists with correct base (main)
@@ -396,7 +399,7 @@ async fn test_draft_pr_in_stack() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // A: Draft PR exists
@@ -425,7 +428,7 @@ async fn test_constraints_skip_synced_bookmarks() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // Both PRs exist with correct bases
@@ -456,7 +459,7 @@ async fn test_all_prs_exist_correct_bases() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-c").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-c")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     mock.set_find_pr_response("feat-a", Some(make_pr(1, "feat-a", "main")));
@@ -494,7 +497,7 @@ async fn test_ten_level_stack_ordering() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-9").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-9")).expect("analyze");
 
     assert_eq!(analysis.segments.len(), 10);
 
@@ -561,7 +564,7 @@ async fn test_constraint_display_formatting() {
 
     let workspace = repo.workspace();
     let graph = build_change_graph(&workspace).expect("build graph");
-    let analysis = analyze_submission(&graph, "feat-b").expect("analyze");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
 
     let mock = MockPlatformService::with_config(github_config());
     // B has wrong base to generate UpdateBase constraint

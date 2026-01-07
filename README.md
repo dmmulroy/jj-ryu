@@ -36,13 +36,16 @@ Binary name is `ryu`.
 ## Quick start
 
 ```sh
-# View your bookmark stacks
+# View your current stack
 ryu
 
-# Submit a stack as PRs
-ryu submit feat-c
+# Track bookmarks for submission
+ryu track --all
 
-# Sync all stacks with remote
+# Submit tracked bookmarks as PRs
+ryu submit
+
+# Sync stack with remote
 ryu sync
 ```
 
@@ -75,17 +78,14 @@ ryu auth gitlab test
 
 ## Usage
 
-### Viewing stacks
+### Viewing your stack
 
-Running `ryu` with no arguments shows your bookmark stacks:
+Running `ryu` with no arguments shows the current stack (bookmarks between trunk and working copy):
 
 ```
 $ ryu
 
-Bookmark Stacks
-===============
-
-Stack #1: feat-c
+Stack: feat-c
 
        [feat-c]
     @  yskvutnz e5f6a7b8 Add logout endpoint
@@ -98,18 +98,38 @@ Stack #1: feat-c
     |
   trunk()
 
-1 stack, 3 bookmarks
+3 bookmarks
 
 Legend: * = synced, ^ = needs push, @ = working copy
 ```
 
+### Tracking bookmarks
+
+Before submitting, bookmarks must be tracked. This gives you control over which bookmarks become PRs:
+
+```sh
+# Interactive selection (opens multi-select picker)
+ryu track
+
+# Track specific bookmarks
+ryu track feat-a feat-b
+
+# Track all bookmarks in trunk()..@
+ryu track --all
+
+# Untrack a bookmark
+ryu untrack feat-a
+```
+
+Tracking state is stored in `.jj/ryu/tracking.json` per workspace.
+
 ### Submitting
 
 ```sh
-ryu submit feat-c
+ryu submit
 ```
 
-This pushes all bookmarks in the stack, creates PRs for any without one, updates PR base branches, and adds stack navigation comments.
+This pushes all tracked bookmarks in the current stack, creates PRs for any without one, updates PR base branches, and adds stack navigation comments. Untracked bookmarks are skipped with a warning.
 
 Each PR gets a comment showing the full stack:
 
@@ -125,12 +145,10 @@ This stack of pull requests is managed by jj-ryu.
 ### Syncing
 
 ```sh
-# Sync all stacks
 ryu sync
-
-# Sync a specific stack only
-ryu sync --stack feat-c
 ```
+
+This fetches from remote and syncs the current stack.
 
 ## Workflow example
 
@@ -149,16 +167,19 @@ jj commit -m "Add session handling"
 # View the stack
 ryu
 
+# Track bookmarks for submission
+ryu track --all
+
 # Submit both as PRs (feat-session -> feat-auth -> main)
-ryu submit feat-session
+ryu submit
 
 # Make changes, then update PRs
 jj commit -m "Address review feedback"
-ryu submit feat-session
+ryu submit
 
 # After feat-auth merges, rebase and re-submit
 jj rebase -d main
-ryu submit feat-session
+ryu submit
 ```
 
 ## Advanced options
@@ -205,9 +226,11 @@ ryu submit feat-c --publish
 ryu [OPTIONS] [COMMAND]
 
 Commands:
-  submit  Submit a bookmark stack as PRs
-  sync    Sync all stacks with remote
-  auth    Authentication management
+  submit   Submit tracked bookmarks as PRs
+  track    Track bookmarks for submission
+  untrack  Stop tracking bookmarks
+  sync     Sync all stacks with remote
+  auth     Authentication management
 
 Options:
   -p, --path <PATH>  Path to jj repository
@@ -218,19 +241,39 @@ Options:
 ### submit
 
 ```
-ryu submit <BOOKMARK> [OPTIONS]
+ryu submit [OPTIONS]
 
 Options:
       --dry-run          Preview without making changes
   -c, --confirm          Preview and prompt for confirmation
       --upto <BOOKMARK>  Submit only up to this bookmark
-      --only             Submit only this bookmark (parent must have PR)
+      --only <BOOKMARK>  Submit only this bookmark (parent must have PR)
       --update-only      Only update existing PRs
   -s, --stack            Include all descendants in submission
       --draft            Create new PRs as drafts
       --publish          Publish draft PRs
   -i, --select           Interactively select bookmarks
       --remote <REMOTE>  Git remote (default: origin)
+```
+
+### track
+
+```
+ryu track [BOOKMARKS]... [OPTIONS]
+
+Options:
+  -a, --all              Track all bookmarks in trunk()..@
+  -f, --force            Re-track already-tracked bookmarks
+      --remote <REMOTE>  Associate with specific remote
+```
+
+### untrack
+
+```
+ryu untrack <BOOKMARKS>...
+
+Options:
+  -a, --all              Untrack all bookmarks
 ```
 
 ### sync
@@ -260,18 +303,19 @@ Ryu's CLI is inspired by Graphite. Here's how commands map:
 
 | Graphite | Ryu |
 |----------|-----|
-| `gt submit` | `ryu submit <bookmark>` |
-| `gt submit --stack` | `ryu submit <bookmark> --stack` |
-| `gt submit --only` | `ryu submit <bookmark> --only` |
-| `gt submit --draft` | `ryu submit <bookmark> --draft` |
-| `gt submit --publish` | `ryu submit <bookmark> --publish` |
-| `gt submit --confirm` | `ryu submit <bookmark> --confirm` |
+| `gt track` | `ryu track` |
+| `gt submit` | `ryu submit` |
+| `gt submit --stack` | `ryu submit --stack` |
+| `gt submit --only` | `ryu submit --only <bookmark>` |
+| `gt submit --draft` | `ryu submit --draft` |
+| `gt submit --publish` | `ryu submit --publish` |
+| `gt submit --confirm` | `ryu submit --confirm` |
 | `gt sync` | `ryu sync` |
 | `gt branch create` | `jj bookmark create` |
 | `gt restack` | `jj rebase` |
 
 Key differences:
-- Ryu requires an explicit bookmark argument (jj doesn't track "current branch")
+- Ryu requires explicit tracking before submit (`ryu track`)
 - Stack management uses jj commands (`jj bookmark`, `jj rebase`), not ryu
 - `ryu sync --stack <bookmark>` syncs a single stack (Graphite syncs all)
 

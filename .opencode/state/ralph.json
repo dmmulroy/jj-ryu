@@ -1,0 +1,14 @@
+{
+  "active": false,
+  "sessionID": "ses_466368513ffeTczZkYiqp9u5tC",
+  "prdPath": "docs/rfcs/prd-ryu-track.json",
+  "progressPath": "docs/rfcs/progress.txt",
+  "projectDir": "docs/rfcs",
+  "iteration": 1,
+  "maxIterations": 25,
+  "errorCount": 0,
+  "maxErrors": 3,
+  "vcsType": "jj",
+  "branchName": "ralph/ryu-track",
+  "startedAt": "2026-01-07T18:51:16.657Z"
+}

@@ -14,7 +14,7 @@ mod analysis_test {
         // Stack: a -> b -> c, target b
         // Should return [a, b] not [a, b, c]
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let result = analyze_submission(&graph, "feat-b").unwrap();
+        let result = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         assert_eq!(result.target_bookmark, "feat-b");
         assert_eq!(result.segments.len(), 2);
@@ -25,7 +25,7 @@ mod analysis_test {
     #[test]
     fn test_analyze_root_of_stack() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let result = analyze_submission(&graph, "feat-a").unwrap();
+        let result = analyze_submission(&graph, Some("feat-a")).unwrap();
 
         assert_eq!(result.segments.len(), 1);
         assert_eq!(result.segments[0].bookmark.name, "feat-a");
@@ -34,7 +34,7 @@ mod analysis_test {
     #[test]
     fn test_analyze_leaf_of_stack() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let result = analyze_submission(&graph, "feat-c").unwrap();
+        let result = analyze_submission(&graph, Some("feat-c")).unwrap();
 
         assert_eq!(result.segments.len(), 3);
         assert_eq!(result.segments[2].bookmark.name, "feat-c");
@@ -43,7 +43,7 @@ mod analysis_test {
     #[test]
     fn test_get_base_branch_three_level_stack() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let analysis = analyze_submission(&graph, "feat-c").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
 
         assert_eq!(
             get_base_branch("feat-a", &analysis.segments, "main").unwrap(),
@@ -63,7 +63,7 @@ mod analysis_test {
     fn test_generate_pr_title_uses_root_commit_description() {
         // Fixture creates description "Commit for {name}"
         let graph = make_linear_stack(&["feat-a"]);
-        let analysis = analyze_submission(&graph, "feat-a").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
 
         let title = generate_pr_title("feat-a", &analysis.segments).unwrap();
         // Should use the actual commit description, not just the bookmark name
@@ -73,7 +73,7 @@ mod analysis_test {
     #[test]
     fn test_analyze_nonexistent_bookmark_error_type() {
         let graph = make_linear_stack(&["feat-a", "feat-b"]);
-        let result = analyze_submission(&graph, "nonexistent");
+        let result = analyze_submission(&graph, Some("nonexistent"));
 
         // Verify we get the correct error type with the bookmark name
         match result {
@@ -88,7 +88,7 @@ mod analysis_test {
     fn test_analyze_multi_bookmark_segment_selects_target() {
         // Two bookmarks pointing to the same commit
         let graph = make_multi_bookmark_segment(&["feat-a", "feat-b"]);
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         // Should select the target bookmark
         assert_eq!(analysis.segments.len(), 1);
@@ -99,7 +99,7 @@ mod analysis_test {
     fn test_select_bookmark_prefers_shorter_name() {
         let graph = make_multi_bookmark_segment(&["feature-auth", "auth"]);
         // Don't specify target - should prefer shorter name
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         assert_eq!(selected.name, "auth");
     }
@@ -107,7 +107,7 @@ mod analysis_test {
     #[test]
     fn test_select_bookmark_filters_temporary() {
         let graph = make_multi_bookmark_segment(&["wip-feature", "feature"]);
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         // Should filter out "wip-feature" and select "feature"
         assert_eq!(selected.name, "feature");
@@ -116,7 +116,7 @@ mod analysis_test {
     #[test]
     fn test_select_bookmark_filters_temp_suffix() {
         let graph = make_multi_bookmark_segment(&["auth-old", "auth"]);
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         assert_eq!(selected.name, "auth");
     }
@@ -125,7 +125,7 @@ mod analysis_test {
     fn test_select_bookmark_all_temporary_uses_shortest() {
         // When all bookmarks are temporary, still picks shortest
         let graph = make_multi_bookmark_segment(&["wip-auth-feature", "tmp-auth"]);
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         // Falls back to shortest
         assert_eq!(selected.name, "tmp-auth");
@@ -135,7 +135,7 @@ mod analysis_test {
     fn test_select_bookmark_alphabetical_tiebreaker() {
         // Use equal-length names to test alphabetical tiebreaker
         let graph = make_multi_bookmark_segment(&["bbb", "aaa"]);
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         // Same length (3 chars each), alphabetically first wins
         assert_eq!(selected.name, "aaa");
@@ -144,7 +144,7 @@ mod analysis_test {
     #[test]
     fn test_select_bookmark_single_returns_it() {
         let graph = make_linear_stack(&["solo"]);
-        let segment = &graph.stacks[0].segments[0];
+        let segment = &graph.stack.as_ref().unwrap().segments[0];
         let selected = select_bookmark_for_segment(segment, None);
         assert_eq!(selected.name, "solo");
     }
@@ -156,7 +156,7 @@ mod analysis_test {
         let names: Vec<String> = (0..10).map(|i| format!("feat-{i}")).collect();
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let graph = make_linear_stack(&name_refs);
-        let analysis = analyze_submission(&graph, "feat-9").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-9")).unwrap();
 
         assert_eq!(analysis.segments.len(), 10);
         assert_eq!(analysis.segments[0].bookmark.name, "feat-0");
@@ -267,7 +267,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_new_stack_no_existing_prs() {
         let graph = make_linear_stack(&["feat-a", "feat-b"]);
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         // Mock returns None for all find_existing_pr calls (default behavior)
         let mock = MockPlatformService::with_config(github_config());
@@ -301,7 +301,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_update_existing_pr_base() {
         let graph = make_linear_stack(&["feat-a", "feat-b"]);
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         // feat-a: no existing PR (default)
@@ -332,7 +332,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_all_prs_exist_correct_base() {
         let graph = make_linear_stack(&["feat-a", "feat-b"]);
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         // Both PRs exist with correct bases
@@ -360,14 +360,14 @@ mod plan_test {
             bm.is_synced = true;
         }
         // Also update in stacks
-        if let Some(segment) = graph.stacks.get_mut(0).and_then(|s| s.segments.get_mut(0)) {
+        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0)) {
             if let Some(bm) = segment.bookmarks.get_mut(0) {
                 bm.has_remote = true;
                 bm.is_synced = true;
             }
         }
 
-        let analysis = analyze_submission(&graph, "feat-a").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
         let mock = MockPlatformService::with_config(github_config());
 
         let plan = create_submission_plan(&analysis, &mock, "origin", "main")
@@ -382,7 +382,7 @@ mod plan_test {
     async fn test_plan_unsynced_bookmark_in_push_list() {
         let graph = make_linear_stack(&["feat-a"]);
         // Default bookmarks from fixtures are not synced
-        let analysis = analyze_submission(&graph, "feat-a").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
         let mock = MockPlatformService::with_config(github_config());
 
         let plan = create_submission_plan(&analysis, &mock, "origin", "main")
@@ -408,7 +408,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_queries_platform_for_each_bookmark() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let analysis = analyze_submission(&graph, "feat-c").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
         let mock = MockPlatformService::with_config(github_config());
 
         let _ = create_submission_plan(&analysis, &mock, "origin", "main")
@@ -427,14 +427,14 @@ mod plan_test {
             bm.has_remote = true;
             bm.is_synced = false;
         }
-        if let Some(segment) = graph.stacks.get_mut(0).and_then(|s| s.segments.get_mut(0)) {
+        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0)) {
             if let Some(bm) = segment.bookmarks.get_mut(0) {
                 bm.has_remote = true;
                 bm.is_synced = false;
             }
         }
 
-        let analysis = analyze_submission(&graph, "feat-a").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
         let mock = MockPlatformService::with_config(github_config());
 
         let plan = create_submission_plan(&analysis, &mock, "origin", "main")
@@ -448,7 +448,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_multiple_base_updates_needed() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let analysis = analyze_submission(&graph, "feat-c").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         // All PRs exist but with wrong bases (all pointing to main)
@@ -484,7 +484,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_handles_find_pr_error() {
         let graph = make_linear_stack(&["feat-a", "feat-b"]);
-        let analysis = analyze_submission(&graph, "feat-b").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-b")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         mock.fail_find_pr("rate limited");
@@ -504,7 +504,7 @@ mod plan_test {
         use jj_ryu::error::Error;
 
         let graph = make_linear_stack(&["feat-a"]);
-        let analysis = analyze_submission(&graph, "feat-a").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         mock.fail_find_pr("API unavailable");
@@ -522,7 +522,7 @@ mod plan_test {
     #[tokio::test]
     async fn test_plan_fails_fast_on_first_error() {
         let graph = make_linear_stack(&["feat-a", "feat-b", "feat-c"]);
-        let analysis = analyze_submission(&graph, "feat-c").unwrap();
+        let analysis = analyze_submission(&graph, Some("feat-c")).unwrap();
 
         let mock = MockPlatformService::with_config(github_config());
         mock.fail_find_pr("connection failed");
@@ -576,6 +576,7 @@ mod stack_comment_test {
             bookmark_name: name.to_string(),
             pr_url: format!("https://github.com/test/test/pull/{number}"),
             pr_number: number,
+            pr_title: format!("feat: {name}"),
         }
     }
 
@@ -598,7 +599,8 @@ mod stack_comment_test {
 
         let data = build_stack_comment_data(&plan, &bookmark_to_pr);
 
-        assert_eq!(data.version, 0);
+        assert_eq!(data.version, 1);
+        assert_eq!(data.base_branch, "main");
         assert_eq!(data.stack.len(), 1);
         assert_eq!(data.stack[0].bookmark_name, "feat-a");
         assert_eq!(data.stack[0].pr_number, 1);
@@ -644,8 +646,9 @@ mod stack_comment_test {
     #[test]
     fn test_format_body_marks_current_pr() {
         let data = StackCommentData {
-            version: 0,
+            version: 1,
             stack: vec![make_stack_item("feat-a", 1), make_stack_item("feat-b", 2)],
+            base_branch: "main".to_string(),
         };
 
         // Format for second PR (index 1)
@@ -667,12 +670,13 @@ mod stack_comment_test {
     #[test]
     fn test_format_body_reverse_order() {
         let data = StackCommentData {
-            version: 0,
+            version: 1,
             stack: vec![
                 make_stack_item("feat-a", 1),
                 make_stack_item("feat-b", 2),
                 make_stack_item("feat-c", 3),
             ],
+            base_branch: "main".to_string(),
         };
 
         let body = format_stack_comment(&data, 0).unwrap();
@@ -690,8 +694,9 @@ mod stack_comment_test {
     #[test]
     fn test_format_body_contains_marker() {
         let data = StackCommentData {
-            version: 0,
+            version: 1,
             stack: vec![make_stack_item("feat-a", 1)],
+            base_branch: "main".to_string(),
         };
 
         let body = format_stack_comment(&data, 0).unwrap();
@@ -699,6 +704,38 @@ mod stack_comment_test {
         assert!(
             body.contains(COMMENT_DATA_PREFIX),
             "body should contain data prefix"
+        );
+    }
+
+    #[test]
+    fn test_format_body_contains_base_branch() {
+        let data = StackCommentData {
+            version: 1,
+            stack: vec![make_stack_item("feat-a", 1)],
+            base_branch: "develop".to_string(),
+        };
+
+        let body = format_stack_comment(&data, 0).unwrap();
+
+        assert!(
+            body.contains("`develop`"),
+            "body should contain base branch: {body}"
+        );
+    }
+
+    #[test]
+    fn test_format_body_contains_pr_title() {
+        let data = StackCommentData {
+            version: 1,
+            stack: vec![make_stack_item("feat-a", 1)],
+            base_branch: "main".to_string(),
+        };
+
+        let body = format_stack_comment(&data, 0).unwrap();
+
+        assert!(
+            body.contains("feat: feat-a"),
+            "body should contain PR title: {body}"
         );
     }
 }

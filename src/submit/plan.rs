@@ -280,7 +280,7 @@ pub struct SubmissionPlan {
 
 impl SubmissionPlan {
     /// Check if there's nothing to do
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.execution_steps.is_empty()
     }
 
@@ -479,14 +479,14 @@ fn collect_constraints(
         if update.expected_base != update.current_base {
             let current_pos = stack_index.get(&update.current_base);
             let bookmark_pos = stack_index.get(&update.bookmark.name);
-            if let (Some(&current_pos), Some(&bookmark_pos)) = (current_pos, bookmark_pos) {
-                if current_pos > bookmark_pos {
-                    // Current base is now below this bookmark - swap scenario
-                    constraints.push(ExecutionConstraint::RetargetBeforePush {
-                        pr: UpdateRef(update.bookmark.name.clone()),
-                        old_base: PushRef(update.current_base.clone()),
-                    });
-                }
+            if let (Some(&current_pos), Some(&bookmark_pos)) = (current_pos, bookmark_pos)
+                && current_pos > bookmark_pos
+            {
+                // Current base is now below this bookmark - swap scenario
+                constraints.push(ExecutionConstraint::RetargetBeforePush {
+                    pr: UpdateRef(update.bookmark.name.clone()),
+                    old_base: PushRef(update.current_base.clone()),
+                });
             }
         }
     }

@@ -260,13 +260,13 @@ impl JjWorkspace {
     ) -> Option<(String, &'static str)> {
         for &remote in Self::REMOTE_PREFERENCE {
             let ref_name = format!("refs/remotes/{remote}/HEAD");
-            if let Some(reference) = git_repo.try_find_reference(&ref_name).ok().flatten() {
-                if let Some(target_name) = reference.target().try_name() {
-                    let target_str = target_name.to_string();
-                    let prefix = format!("refs/remotes/{remote}/");
-                    if let Some(branch) = target_str.strip_prefix(&prefix) {
-                        return Some((branch.to_string(), remote));
-                    }
+            if let Some(reference) = git_repo.try_find_reference(&ref_name).ok().flatten()
+                && let Some(target_name) = reference.target().try_name()
+            {
+                let target_str = target_name.to_string();
+                let prefix = format!("refs/remotes/{remote}/");
+                if let Some(branch) = target_str.strip_prefix(&prefix) {
+                    return Some((branch.to_string(), remote));
                 }
             }
         }
@@ -275,10 +275,10 @@ impl JjWorkspace {
 
     /// Compute `trunk()` alias by checking remote HEAD first, then falling back to default
     fn compute_trunk_alias(repo: &Arc<jj_lib::repo::ReadonlyRepo>) -> String {
-        if let Ok(git_repo) = git::get_git_repo(repo.store()) {
-            if let Some((branch, remote)) = Self::detect_default_branch_from_remote(&git_repo) {
-                return format!(r#"remote_bookmarks(exact:"{branch}", exact:"{remote}")"#);
-            }
+        if let Ok(git_repo) = git::get_git_repo(repo.store())
+            && let Some((branch, remote)) = Self::detect_default_branch_from_remote(&git_repo)
+        {
+            return format!(r#"remote_bookmarks(exact:"{branch}", exact:"{remote}")"#);
         }
         Self::DEFAULT_TRUNK_ALIAS.to_string()
     }
@@ -566,10 +566,10 @@ impl JjWorkspace {
         let repo = self.repo()?;
 
         // Try to detect from git remote HEAD (handles custom default branches like "develop")
-        if let Ok(git_repo) = git::get_git_repo(repo.store()) {
-            if let Some((branch, _)) = Self::detect_default_branch_from_remote(&git_repo) {
-                return Ok(branch);
-            }
+        if let Ok(git_repo) = git::get_git_repo(repo.store())
+            && let Some((branch, _)) = Self::detect_default_branch_from_remote(&git_repo)
+        {
+            return Ok(branch);
         }
 
         // Fall back to checking local bookmarks for common names

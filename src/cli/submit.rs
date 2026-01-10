@@ -127,10 +127,10 @@ pub async fn run_submit(
     }
 
     // If bookmark specified, verify it exists in stack
-    if let Some(bm) = bookmark {
-        if !graph.bookmarks.contains_key(bm) {
-            return Err(Error::BookmarkNotFound(bm.to_string()));
-        }
+    if let Some(bm) = bookmark
+        && !graph.bookmarks.contains_key(bm)
+    {
+        return Err(Error::BookmarkNotFound(bm.to_string()));
     }
 
     // Analyze submission based on options

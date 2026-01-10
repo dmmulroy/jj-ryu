@@ -88,10 +88,10 @@ pub fn select_bookmark_for_segment(segment: &BookmarkSegment, target: Option<&st
     }
 
     // 1. Prefer target if specified and present
-    if let Some(target_name) = target {
-        if let Some(b) = bookmarks.iter().find(|b| b.name == target_name) {
-            return b.clone();
-        }
+    if let Some(target_name) = target
+        && let Some(b) = bookmarks.iter().find(|b| b.name == target_name)
+    {
+        return b.clone();
     }
 
     // 2. Filter out temporary bookmarks

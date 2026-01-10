@@ -209,14 +209,14 @@ impl PlatformService for GitHubService {
             .map_err(|e| Error::GitHubApi(format!("GraphQL mutation failed: {e}")))?;
 
         // Check for GraphQL errors
-        if let Some(errors) = response.errors {
-            if !errors.is_empty() {
-                let messages: Vec<_> = errors.into_iter().map(|e| e.message).collect();
-                return Err(Error::GitHubApi(format!(
-                    "GraphQL error: {}",
-                    messages.join(", ")
-                )));
-            }
+        if let Some(errors) = response.errors
+            && !errors.is_empty()
+        {
+            let messages: Vec<_> = errors.into_iter().map(|e| e.message).collect();
+            return Err(Error::GitHubApi(format!(
+                "GraphQL error: {}",
+                messages.join(", ")
+            )));
         }
 
         // Extract typed response

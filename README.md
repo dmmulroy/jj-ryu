@@ -2,7 +2,7 @@
 
 <img width="366" height="366" alt="image" src="https://github.com/user-attachments/assets/1691edfc-3b65-4f8d-b959-71ff21ff23e5" />
 
-Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark stacks to GitHub and GitLab as chained pull requests.
+Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark stacks to GitHub, GitLab, and Azure DevOps as chained pull requests.
 
 ## What it does
 
@@ -69,11 +69,31 @@ Uses (in order):
 
 For self-hosted: `export GITLAB_HOST=gitlab.mycompany.com`
 
+### Azure DevOps
+
+Uses (in order):
+1. `AZURE_DEVOPS_PAT` env var (recommended)
+2. `AZURE_DEVOPS_TOKEN` env var
+3. `az devops configure` (Azure CLI)
+
+**Setup:**
+
+1. Create a Personal Access Token at `https://dev.azure.com/{your-org}/_usersSettings/tokens`
+   - Scopes required: **Code (Read & Write)** and **Pull Requests (Read & Write)**
+2. Set environment variables:
+   ```sh
+   export AZURE_DEVOPS_PAT="your-token"
+   export AZURE_DEVOPS_ORGANIZATION="YourOrg"  # Optional but recommended for auth test
+   ```
+
+For self-hosted: `export AZURE_DEVOPS_HOST=your-server.com`
+
 ### Test authentication
 
 ```sh
 ryu auth github test
 ryu auth gitlab test
+ryu auth azure-devops test
 ```
 
 ## Usage

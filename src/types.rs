@@ -129,6 +129,8 @@ pub enum Platform {
     GitHub,
     /// GitLab or self-hosted GitLab
     GitLab,
+    /// Azure DevOps
+    AzureDevOps,
 }
 
 impl std::fmt::Display for Platform {
@@ -136,6 +138,7 @@ impl std::fmt::Display for Platform {
         match self {
             Self::GitHub => write!(f, "GitHub"),
             Self::GitLab => write!(f, "GitLab"),
+            Self::AzureDevOps => write!(f, "Azure DevOps"),
         }
     }
 }

@@ -11,7 +11,7 @@ mod cli;
 
 #[derive(Parser)]
 #[command(name = "ryu")]
-#[command(about = "Stacked PRs for Jujutsu - GitHub & GitLab")]
+#[command(about = "Stacked PRs for Jujutsu - GitHub, GitLab & Azure DevOps")]
 #[command(version)]
 struct Cli {
     /// Path to jj repository (defaults to current directory)
@@ -140,6 +140,12 @@ enum AuthPlatform {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Azure DevOps authentication
+    #[command(name = "azure-devops")]
+    AzureDevops {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -235,6 +241,13 @@ async fn main() -> Result<()> {
                     AuthAction::Setup => "setup",
                 };
                 cli::run_auth(Platform::GitLab, action_str).await?;
+            }
+            AuthPlatform::AzureDevops { action } => {
+                let action_str = match action {
+                    AuthAction::Test => "test",
+                    AuthAction::Setup => "setup",
+                };
+                cli::run_auth(Platform::AzureDevOps, action_str).await?;
             }
         },
         Some(Commands::Track {

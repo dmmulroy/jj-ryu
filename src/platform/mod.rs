@@ -2,11 +2,13 @@
 //!
 //! Provides a unified interface for PR/MR operations across platforms.
 
+mod azure_devops;
 mod detection;
 mod factory;
 mod github;
 mod gitlab;
 
+pub use azure_devops::AzureDevOpsService;
 pub use detection::{detect_platform, parse_repo_info};
 pub use factory::create_platform_service;
 pub use github::GitHubService;

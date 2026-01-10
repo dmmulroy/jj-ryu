@@ -360,11 +360,11 @@ mod plan_test {
             bm.is_synced = true;
         }
         // Also update in stacks
-        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0)) {
-            if let Some(bm) = segment.bookmarks.get_mut(0) {
-                bm.has_remote = true;
-                bm.is_synced = true;
-            }
+        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0))
+            && let Some(bm) = segment.bookmarks.get_mut(0)
+        {
+            bm.has_remote = true;
+            bm.is_synced = true;
         }
 
         let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();
@@ -427,11 +427,11 @@ mod plan_test {
             bm.has_remote = true;
             bm.is_synced = false;
         }
-        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0)) {
-            if let Some(bm) = segment.bookmarks.get_mut(0) {
-                bm.has_remote = true;
-                bm.is_synced = false;
-            }
+        if let Some(segment) = graph.stack.as_mut().and_then(|s| s.segments.get_mut(0))
+            && let Some(bm) = segment.bookmarks.get_mut(0)
+        {
+            bm.has_remote = true;
+            bm.is_synced = false;
         }
 
         let analysis = analyze_submission(&graph, Some("feat-a")).unwrap();

@@ -463,19 +463,15 @@ fn get_pr_state(pr_number: u64) -> Option<String> {
 async fn wait_for_pr_merged(pr_number: u64, timeout: std::time::Duration) -> bool {
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
-        if let Some(state) = get_pr_state(pr_number) {
-            // GitHub API returns "closed" for merged PRs, check merged_at
-            if state == "closed" {
-                // Verify it was actually merged
-                if let Some(merged) = gh_api_get(
-                    &format!("repos/{}/pulls/{pr_number}", repo_spec()),
-                    ".merged",
-                ) {
-                    if merged == "true" {
-                        return true;
-                    }
-                }
-            }
+        if let Some(state) = get_pr_state(pr_number)
+            && state == "closed"
+            && let Some(merged) = gh_api_get(
+                &format!("repos/{}/pulls/{pr_number}", repo_spec()),
+                ".merged",
+            )
+            && merged == "true"
+        {
+            return true;
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }

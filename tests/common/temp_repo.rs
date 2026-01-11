@@ -202,6 +202,19 @@ mod tests {
     }
 
     #[test]
+    fn test_open_workspace_from_subdir() {
+        let repo = TempJjRepo::new();
+        let subdir = repo.path().join("nested");
+        std::fs::create_dir_all(&subdir).expect("create subdir");
+
+        let workspace = JjWorkspace::open(&subdir).expect("open workspace from subdir");
+        let workspace_root =
+            std::fs::canonicalize(workspace.workspace_root()).expect("canonicalize workspace root");
+        let repo_root = std::fs::canonicalize(repo.path()).expect("canonicalize repo root");
+        assert_eq!(workspace_root, repo_root);
+    }
+
+    #[test]
     fn test_create_bookmark() {
         let repo = TempJjRepo::new();
         repo.commit("test commit");

@@ -72,7 +72,7 @@ impl JjWorkspace {
 
         let workspace = Workspace::load(
             &settings,
-            &workspace_root,
+            workspace_root,
             &StoreFactories::default(),
             &default_working_copy_factories(),
         )

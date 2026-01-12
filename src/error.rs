@@ -80,6 +80,10 @@ pub enum Error {
     #[error("GitHub client error: {0}")]
     Octocrab(#[from] octocrab::Error),
 
+    /// Azure DevOps API error
+    #[error("Azure DevOps API error: {0}")]
+    AzureDevOpsApi(String),
+
     /// Platform API error (generic)
     #[error("platform error: {0}")]
     Platform(String),

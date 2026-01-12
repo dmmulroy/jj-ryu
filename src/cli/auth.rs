@@ -1,9 +1,12 @@
 //! Auth command - test and manage authentication
 
-use crate::cli::style::{Stylize, check, spinner_style};
+use crate::cli::style::{check, spinner_style, Stylize};
 use anstream::println;
 use indicatif::ProgressBar;
-use jj_ryu::auth::{get_github_auth, get_gitlab_auth, test_github_auth, test_gitlab_auth};
+use jj_ryu::auth::{
+    get_azure_devops_auth, get_github_auth, get_gitlab_auth, test_azure_devops_auth,
+    test_github_auth, test_gitlab_auth,
+};
 use jj_ryu::error::Result;
 use jj_ryu::types::Platform;
 use std::time::Duration;
@@ -32,6 +35,20 @@ pub async fn run_auth_test(platform: Platform) -> Result<()> {
 
             let config = get_gitlab_auth(None).await?;
             let username = test_gitlab_auth(&config).await?;
+
+            spinner.finish_and_clear();
+            println!("{} Authenticated as: {}", check(), username.accent());
+            println!("  {} {:?}", "Token source:".muted(), config.source);
+            println!("  {} {}", "Host:".muted(), config.host);
+        }
+        Platform::AzureDevOps => {
+            let spinner = ProgressBar::new_spinner();
+            spinner.set_style(spinner_style());
+            spinner.set_message("Testing Azure DevOps authentication...");
+            spinner.enable_steady_tick(Duration::from_millis(80));
+
+            let config = get_azure_devops_auth(None).await?;
+            let username = test_azure_devops_auth(&config).await?;
 
             spinner.finish_and_clear();
             println!("{} Authenticated as: {}", check(), username.accent());
@@ -81,6 +98,35 @@ pub fn run_auth_setup(platform: Platform) {
             println!();
             println!("{}", "For self-hosted GitLab:".muted());
             println!("  {}", "Set GITLAB_HOST to your instance hostname".muted());
+        }
+        Platform::AzureDevOps => {
+            println!("{}", "Azure DevOps Authentication Setup".emphasis());
+            println!();
+            println!("{}", "Recommended: Personal Access Token (PAT)".emphasis());
+            println!();
+            println!("{}", "Step 1: Create a PAT".muted());
+            println!("  1. Go to: {}", "https://dev.azure.com/{your-org}/_usersSettings/tokens".accent());
+            println!("  2. Click 'New Token'");
+            println!("  3. Set name: {}", "jj-ryu".accent());
+            println!("  4. Select scopes:");
+            println!("     - {} (Read & Write)", "Code".emphasis());
+            println!("     - {} (Read & Write)", "Pull Requests".emphasis());
+            println!("  5. Click 'Create' and copy the token");
+            println!();
+            println!("{}", "Step 2: Set environment variables".muted());
+            println!("  export {}=<your-token>", "AZURE_DEVOPS_PAT".accent());
+            println!("  export {}=<your-org>  # Optional but recommended", "AZURE_DEVOPS_ORGANIZATION".accent());
+            println!();
+            println!("{}", "Example:".muted());
+            println!("  export AZURE_DEVOPS_PAT=abc123...");
+            println!("  export AZURE_DEVOPS_ORGANIZATION=MyCompany");
+            println!();
+            println!("{}", "Alternative environment variables:".muted());
+            println!("  {} - Personal Access Token (recommended)", "AZURE_DEVOPS_PAT".muted());
+            println!("  {} - Alternative name", "AZURE_DEVOPS_TOKEN".muted());
+            println!("  {} - For custom validation", "AZURE_DEVOPS_ORGANIZATION".muted());
+            println!();
+            println!("{}", "Note: Azure CLI (az devops) is supported but not required".muted());
         }
     }
 }

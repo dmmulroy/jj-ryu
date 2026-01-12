@@ -57,14 +57,22 @@ fn create_user_settings() -> Result<UserSettings> {
         .map_err(|e| Error::Config(format!("Failed to create settings: {e}")))
 }
 
+/// Finds the nearest workspace root by walking up the directory tree.
+fn find_workspace_dir(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|path| path.join(".jj").is_dir())
+        .unwrap_or(path)
+}
+
 impl JjWorkspace {
     /// Open a jj workspace at the given path
     pub fn open(path: &Path) -> Result<Self> {
         let settings = create_user_settings()?;
+        let workspace_root = find_workspace_dir(path);
 
         let workspace = Workspace::load(
             &settings,
-            path,
+            &workspace_root,
             &StoreFactories::default(),
             &default_working_copy_factories(),
         )

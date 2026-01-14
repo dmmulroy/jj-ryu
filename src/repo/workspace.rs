@@ -21,7 +21,7 @@ use jj_lib::revset::{
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::{StringExpression, StringMatcher, StringPattern};
 use jj_lib::workspace::{Workspace, default_working_copy_factories};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Wrapper around jj-lib workspace and repository
@@ -58,10 +58,16 @@ fn create_user_settings() -> Result<UserSettings> {
 }
 
 /// Finds the nearest workspace root by walking up the directory tree.
-fn find_workspace_dir(path: &Path) -> &Path {
-    path.ancestors()
-        .find(|path| path.join(".jj").is_dir())
-        .unwrap_or(path)
+///
+/// Canonicalizes the path first so relative paths like "." correctly
+/// resolve to their absolute positions before walking up ancestors.
+fn find_workspace_dir(path: &Path) -> PathBuf {
+    let absolute = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    absolute
+        .ancestors()
+        .find(|p| p.join(".jj").is_dir())
+        .map(Path::to_path_buf)
+        .unwrap_or(absolute)
 }
 
 impl JjWorkspace {
@@ -72,7 +78,7 @@ impl JjWorkspace {
 
         let workspace = Workspace::load(
             &settings,
-            workspace_root,
+            &workspace_root,
             &StoreFactories::default(),
             &default_working_copy_factories(),
         )

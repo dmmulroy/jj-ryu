@@ -33,6 +33,33 @@ cargo install jj-ryu
 
 Binary name is `ryu`.
 
+### Nix
+
+```sh
+# Try it
+nix run github:dmmulroy/jj-ryu
+
+# Install to profile
+nix profile install github:dmmulroy/jj-ryu
+```
+
+Or add to your flake inputs:
+
+```nix
+{
+  inputs.jj-ryu.url = "github:dmmulroy/jj-ryu";
+
+  outputs = { self, nixpkgs, jj-ryu, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [{
+        nixpkgs.overlays = [ jj-ryu.overlays.default ];
+        environment.systemPackages = [ pkgs.jj-ryu ];
+      }];
+    };
+  };
+}
+```
+
 ## Quick start
 
 ```sh

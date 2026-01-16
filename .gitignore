@@ -1,6 +1,9 @@
 /target
 .DS_Store
 
+# Nix
+result
+
 # Generated npm platform packages
 /npm/darwin-arm64/
 /npm/darwin-x64/

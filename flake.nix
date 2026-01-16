@@ -14,7 +14,12 @@
       rust-overlay,
       flake-utils,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    {
+      overlays.default = final: prev: {
+        jj-ryu = self.packages.${final.system}.ryu;
+      };
+    }
+    // flake-utils.lib.eachDefaultSystem (
       system:
       let
         overlays = [ (import rust-overlay) ];
@@ -27,10 +32,33 @@
           rustc = rust;
         };
 
+        version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+        versionSuffix = if self ? rev then "-${builtins.substring 0 7 self.rev}" else "-dirty";
+
+        src = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./src
+            ./tests
+          ];
+        };
+
+        meta = with pkgs.lib; {
+          description = "Stacked PRs for Jujutsu with GitHub/GitLab support";
+          homepage = "https://github.com/dmmulroy/jj-ryu";
+          changelog = "https://github.com/dmmulroy/jj-ryu/releases/tag/v${version}";
+          license = licenses.mit;
+          maintainers = [ ];
+          mainProgram = "ryu";
+          platforms = platforms.unix;
+        };
+
         ryu = rustPlatform.buildRustPackage {
           pname = "jj-ryu";
-          version = "0.0.1-alpha.9";
-          src = ./.;
+          version = "${version}${versionSuffix}";
+          inherit src meta;
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
@@ -52,13 +80,21 @@
         apps.default = flake-utils.lib.mkApp { drv = ryu; };
         apps.ryu = flake-utils.lib.mkApp { drv = ryu; };
 
+        checks = {
+          ryu = ryu;
+        };
+
         devShells.default = pkgs.mkShell {
           inputsFrom = [ ryu ];
           packages = [
             rust
             pkgs.pkg-config
+            pkgs.rust-analyzer
+            pkgs.cargo-watch
           ];
         };
+
+        formatter = pkgs.nixfmt-rfc-style;
       }
     );
 }

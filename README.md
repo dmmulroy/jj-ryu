@@ -316,7 +316,7 @@ Ryu's CLI is inspired by Graphite. Here's how commands map:
 
 Key differences:
 - Ryu requires explicit tracking before submit (`ryu track`)
-- Stack management uses jj commands (`jj bookmark`, `jj rebase`), not ryu
+- Stack management uses jj commands (`jj bookmark`, `jj rebase`), not git
 - `ryu sync --stack <bookmark>` syncs a single stack (Graphite syncs all)
 
 ## License

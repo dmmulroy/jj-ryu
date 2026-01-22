@@ -33,6 +33,7 @@ octocrab = { version = "0.47", default-features = false, features = ["rustls", "
 # serialization + utilities
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 thiserror = "2.0"
 anyhow = "1"
 async-trait = "0.1"

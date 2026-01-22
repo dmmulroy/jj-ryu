@@ -72,20 +72,8 @@ async fn get_glab_cli_token(host: &str) -> Option<String> {
     // Check glab is available
     Command::new("glab").arg("--version").output().await.ok()?;
 
-    // Check authenticated
-    let status = Command::new("glab")
-        .args(["auth", "status", "--hostname", host])
-        .output()
-        .await
-        .ok()?;
-
-    if !status.status.success() {
-        return None;
-    }
-
-    // Get token
     let output = Command::new("glab")
-        .args(["auth", "token", "--hostname", host])
+        .args(["auth", "status", "--hostname", host, "--show-token"])
         .output()
         .await
         .ok()?;
@@ -94,8 +82,28 @@ async fn get_glab_cli_token(host: &str) -> Option<String> {
         return None;
     }
 
-    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() { None } else { Some(token) }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}\n{stderr}");
+    extract_token_from_glab_status(&combined)
+}
+
+fn extract_token_from_glab_status(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        let token_start = trimmed
+            .find("Token found:")
+            .map(|idx| idx + "Token found:".len())
+            .or_else(|| trimmed.find("Token:").map(|idx| idx + "Token:".len()));
+
+        if let Some(start) = token_start {
+            let token = trimmed[start..].trim();
+            if !token.is_empty() {
+                return Some(token.to_string());
+            }
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]

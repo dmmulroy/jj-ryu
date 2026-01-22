@@ -260,6 +260,7 @@ mod detection_test {
     }
 }
 
+
 mod plan_test {
     use crate::common::{MockPlatformService, github_config, make_linear_stack, make_pr};
     use jj_ryu::submit::{ExecutionStep, analyze_submission, create_submission_plan};

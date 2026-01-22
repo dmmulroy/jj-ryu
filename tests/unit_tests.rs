@@ -546,7 +546,7 @@ mod stack_comment_test {
         COMMENT_DATA_PREFIX, STACK_COMMENT_THIS_PR, StackCommentData, StackItem, SubmissionPlan,
         build_stack_comment_data, format_stack_comment,
     };
-    use jj_ryu::types::{Bookmark, NarrowedBookmarkSegment, PullRequest};
+    use jj_ryu::types::{Bookmark, NarrowedBookmarkSegment, Platform, PullRequest};
     use std::collections::HashMap;
 
     fn make_bookmark(name: &str) -> Bookmark {
@@ -652,7 +652,7 @@ mod stack_comment_test {
         };
 
         // Format for second PR (index 1)
-        let body = format_stack_comment(&data, 1).unwrap();
+        let body = format_stack_comment(&data, 1, Platform::GitHub).unwrap();
 
         // PR #2 should have the marker
         assert!(
@@ -679,7 +679,7 @@ mod stack_comment_test {
             base_branch: "main".to_string(),
         };
 
-        let body = format_stack_comment(&data, 0).unwrap();
+        let body = format_stack_comment(&data, 0, Platform::GitHub).unwrap();
 
         // Find positions of each PR in the body
         let pos_1 = body.find("#1").expect("should contain #1");
@@ -699,7 +699,7 @@ mod stack_comment_test {
             base_branch: "main".to_string(),
         };
 
-        let body = format_stack_comment(&data, 0).unwrap();
+        let body = format_stack_comment(&data, 0, Platform::GitHub).unwrap();
 
         assert!(
             body.contains(COMMENT_DATA_PREFIX),
@@ -715,7 +715,7 @@ mod stack_comment_test {
             base_branch: "develop".to_string(),
         };
 
-        let body = format_stack_comment(&data, 0).unwrap();
+        let body = format_stack_comment(&data, 0, Platform::GitHub).unwrap();
 
         assert!(
             body.contains("`develop`"),
@@ -731,11 +731,27 @@ mod stack_comment_test {
             base_branch: "main".to_string(),
         };
 
-        let body = format_stack_comment(&data, 0).unwrap();
+        let body = format_stack_comment(&data, 0, Platform::GitHub).unwrap();
 
         assert!(
             body.contains("feat: feat-a"),
             "body should contain PR title: {body}"
+        );
+    }
+
+    #[test]
+    fn test_format_body_uses_gitlab_reference() {
+        let data = StackCommentData {
+            version: 1,
+            stack: vec![make_stack_item("feat-a", 1)],
+            base_branch: "main".to_string(),
+        };
+
+        let body = format_stack_comment(&data, 0, Platform::GitLab).unwrap();
+
+        assert!(
+            body.contains("!1"),
+            "body should use GitLab MR references: {body}"
         );
     }
 }

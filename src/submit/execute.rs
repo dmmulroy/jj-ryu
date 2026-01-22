@@ -7,6 +7,7 @@ use crate::platform::PlatformService;
 use crate::repo::JjWorkspace;
 use crate::submit::plan::{PrBaseUpdate, PrToCreate};
 use crate::submit::{ExecutionStep, Phase, ProgressCallback, PushStatus, SubmissionPlan};
+use crate::types::Platform;
 use crate::types::{Bookmark, PullRequest};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
@@ -377,26 +378,35 @@ pub fn build_stack_comment_data(
 }
 
 /// Format the stack comment body for a PR
-pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Result<String> {
+pub fn format_stack_comment(
+    data: &StackCommentData,
+    current_idx: usize,
+    platform: Platform,
+) -> Result<String> {
     let encoded_data = BASE64.encode(
         serde_json::to_string(data)
             .map_err(|e| Error::Internal(format!("Failed to serialize stack data: {e}")))?,
     );
 
+    let pr_ref_prefix = match platform {
+        Platform::GitHub => "#",
+        Platform::GitLab => "!",
+    };
     let mut body = format!("{COMMENT_DATA_PREFIX}{encoded_data}{COMMENT_DATA_POSTFIX}\n");
 
     // Reverse order: newest/leaf at top, oldest at bottom
-    // Format: "* PR title #N" with current PR marked with 👈 and bold
+    // Format: "* PR title #N" (GitHub) or "* PR title !N" (GitLab)
+    // with current PR marked with 👈 and bold
     let reversed_idx = data.stack.len() - 1 - current_idx;
     for (i, item) in data.stack.iter().rev().enumerate() {
         if i == reversed_idx {
             let _ = writeln!(
                 body,
-                "* **{} #{} {STACK_COMMENT_THIS_PR}**",
-                item.pr_title, item.pr_number
+                "* **{} {}{} {STACK_COMMENT_THIS_PR}**",
+                item.pr_title, pr_ref_prefix, item.pr_number
             );
         } else {
-            let _ = writeln!(body, "* {} #{}", item.pr_title, item.pr_number);
+            let _ = writeln!(body, "* {} {}{}", item.pr_title, pr_ref_prefix, item.pr_number);
         }
     }
 
@@ -418,7 +428,7 @@ async fn create_or_update_stack_comment(
     current_idx: usize,
     pr_number: u64,
 ) -> Result<()> {
-    let body = format_stack_comment(data, current_idx)?;
+    let body = format_stack_comment(data, current_idx, platform.config().platform)?;
 
     // Find existing comment by looking for our data prefix (check both old and new)
     let comments = platform.list_pr_comments(pr_number).await?;
@@ -674,7 +684,7 @@ mod tests {
         };
 
         // Format for PR #2 (index 1)
-        let body = format_stack_comment(&data, 1).unwrap();
+        let body = format_stack_comment(&data, 1, Platform::GitHub).unwrap();
         assert!(body.contains(&format!("#{} {STACK_COMMENT_THIS_PR}", 2)));
         assert!(!body.contains(&format!("#{} {STACK_COMMENT_THIS_PR}", 1)));
     }
@@ -692,7 +702,7 @@ mod tests {
             base_branch: "main".to_string(),
         };
 
-        let body = format_stack_comment(&data, 0).unwrap();
+        let body = format_stack_comment(&data, 0, Platform::GitHub).unwrap();
         assert!(body.contains(COMMENT_DATA_PREFIX));
         assert!(body.contains(COMMENT_DATA_POSTFIX));
     }

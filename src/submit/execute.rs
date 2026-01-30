@@ -7,7 +7,7 @@ use crate::platform::PlatformService;
 use crate::repo::JjWorkspace;
 use crate::submit::plan::{PrBaseUpdate, PrToCreate};
 use crate::submit::{ExecutionStep, Phase, ProgressCallback, PushStatus, SubmissionPlan};
-use crate::types::{Bookmark, PullRequest};
+use crate::types::{Bookmark, Platform, PullRequest};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -376,8 +376,22 @@ pub fn build_stack_comment_data(
     }
 }
 
-/// Format the stack comment body for a PR
+/// Format the stack comment body for a PR (defaults to GitHub format)
+///
+/// For platform-specific formatting, use internal `format_stack_comment_for_platform`.
 pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Result<String> {
+    format_stack_comment_for_platform(data, current_idx, Platform::GitHub)
+}
+
+/// Format the stack comment body for a PR with platform-specific formatting
+///
+/// - GitHub: Uses `#N` which auto-links to PRs
+/// - GitLab: Uses `[title !N](url)` since `#N` links to issues, not MRs
+fn format_stack_comment_for_platform(
+    data: &StackCommentData,
+    current_idx: usize,
+    platform: Platform,
+) -> Result<String> {
     let encoded_data = BASE64.encode(
         serde_json::to_string(data)
             .map_err(|e| Error::Internal(format!("Failed to serialize stack data: {e}")))?,
@@ -386,17 +400,38 @@ pub fn format_stack_comment(data: &StackCommentData, current_idx: usize) -> Resu
     let mut body = format!("{COMMENT_DATA_PREFIX}{encoded_data}{COMMENT_DATA_POSTFIX}\n");
 
     // Reverse order: newest/leaf at top, oldest at bottom
-    // Format: "* PR title #N" with current PR marked with 👈 and bold
     let reversed_idx = data.stack.len() - 1 - current_idx;
     for (i, item) in data.stack.iter().rev().enumerate() {
-        if i == reversed_idx {
-            let _ = writeln!(
-                body,
-                "* **{} #{} {STACK_COMMENT_THIS_PR}**",
-                item.pr_title, item.pr_number
-            );
-        } else {
-            let _ = writeln!(body, "* {} #{}", item.pr_title, item.pr_number);
+        let is_current = i == reversed_idx;
+        match platform {
+            Platform::GitHub => {
+                // GitHub: "* PR title #N" - #N auto-links to PRs
+                if is_current {
+                    let _ = writeln!(
+                        body,
+                        "* **{} #{} {STACK_COMMENT_THIS_PR}**",
+                        item.pr_title, item.pr_number
+                    );
+                } else {
+                    let _ = writeln!(body, "* {} #{}", item.pr_title, item.pr_number);
+                }
+            }
+            Platform::GitLab => {
+                // GitLab: "* [PR title !N](url)" - !N is MR reference, full link for clickability
+                if is_current {
+                    let _ = writeln!(
+                        body,
+                        "* **[{} !{}]({}) {STACK_COMMENT_THIS_PR}**",
+                        item.pr_title, item.pr_number, item.pr_url
+                    );
+                } else {
+                    let _ = writeln!(
+                        body,
+                        "* [{} !{}]({})",
+                        item.pr_title, item.pr_number, item.pr_url
+                    );
+                }
+            }
         }
     }
 
@@ -418,7 +453,7 @@ async fn create_or_update_stack_comment(
     current_idx: usize,
     pr_number: u64,
 ) -> Result<()> {
-    let body = format_stack_comment(data, current_idx)?;
+    let body = format_stack_comment_for_platform(data, current_idx, platform.config().platform)?;
 
     // Find existing comment by looking for our data prefix (check both old and new)
     let comments = platform.list_pr_comments(pr_number).await?;
@@ -695,6 +730,74 @@ mod tests {
         let body = format_stack_comment(&data, 0).unwrap();
         assert!(body.contains(COMMENT_DATA_PREFIX));
         assert!(body.contains(COMMENT_DATA_POSTFIX));
+    }
+
+    #[test]
+    fn test_format_stack_comment_gitlab_uses_exclamation_mark() {
+        let data = StackCommentData {
+            version: 1,
+            stack: vec![
+                StackItem {
+                    bookmark_name: "feat-a".to_string(),
+                    pr_url: "https://gitlab.com/test/test/-/merge_requests/1".to_string(),
+                    pr_number: 1,
+                    pr_title: "feat: add auth".to_string(),
+                },
+                StackItem {
+                    bookmark_name: "feat-b".to_string(),
+                    pr_url: "https://gitlab.com/test/test/-/merge_requests/2".to_string(),
+                    pr_number: 2,
+                    pr_title: "feat: add sessions".to_string(),
+                },
+            ],
+            base_branch: "main".to_string(),
+        };
+
+        // GitLab format should use !N and full URLs
+        let body = format_stack_comment_for_platform(&data, 1, Platform::GitLab).unwrap();
+
+        // Should use !N (MR reference) not #N
+        assert!(body.contains("!1"), "GitLab should use !N for MRs: {body}");
+        assert!(body.contains("!2"), "GitLab should use !N for MRs: {body}");
+        assert!(!body.contains("#1"), "GitLab should NOT use #N: {body}");
+        assert!(!body.contains("#2"), "GitLab should NOT use #N: {body}");
+
+        // Should have full URLs
+        assert!(
+            body.contains("https://gitlab.com/test/test/-/merge_requests/1"),
+            "GitLab should include full URLs: {body}"
+        );
+
+        // Current PR should have marker
+        assert!(
+            body.contains(&format!("!2]({}) {STACK_COMMENT_THIS_PR}", "https://gitlab.com/test/test/-/merge_requests/2")),
+            "Current PR should have marker: {body}"
+        );
+    }
+
+    #[test]
+    fn test_format_stack_comment_github_uses_hash() {
+        let data = StackCommentData {
+            version: 1,
+            stack: vec![StackItem {
+                bookmark_name: "feat-a".to_string(),
+                pr_url: "https://github.com/test/test/pull/1".to_string(),
+                pr_number: 1,
+                pr_title: "feat: add auth".to_string(),
+            }],
+            base_branch: "main".to_string(),
+        };
+
+        // GitHub format should use #N without URLs in the visible text
+        let body = format_stack_comment_for_platform(&data, 0, Platform::GitHub).unwrap();
+
+        assert!(body.contains("#1"), "GitHub should use #N: {body}");
+        assert!(!body.contains("!1"), "GitHub should NOT use !N: {body}");
+        // GitHub format doesn't include PR URLs in visible text (relies on auto-linking)
+        assert!(
+            !body.contains("](https://github.com/test/test/pull"),
+            "GitHub should NOT have markdown links to PRs: {body}"
+        );
     }
 
     // === Plan helper tests ===

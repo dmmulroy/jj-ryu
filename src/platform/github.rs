@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
-use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
+use crate::types::{Platform, PlatformConfig, PrComment, PullRequest, normalize_host};
 use async_trait::async_trait;
 use octocrab::Octocrab;
 use serde::Deserialize;
@@ -68,6 +68,7 @@ pub struct GitHubService {
 impl GitHubService {
     /// Create a new GitHub service
     pub fn new(token: &str, owner: String, repo: String, host: Option<String>) -> Result<Self> {
+        let host = host.map(|h| normalize_host(&h));
         let mut builder = Octocrab::builder().personal_token(token.to_string());
 
         if let Some(ref h) = host {

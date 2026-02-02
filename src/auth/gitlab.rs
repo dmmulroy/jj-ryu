@@ -2,6 +2,7 @@
 
 use crate::auth::AuthSource;
 use crate::error::{Error, Result};
+use crate::types::normalize_host;
 use reqwest::Client;
 use serde::Deserialize;
 use std::env;
@@ -27,8 +28,8 @@ pub struct GitLabAuthConfig {
 /// 3. `GL_TOKEN` environment variable
 pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
     let host = host
-        .map(String::from)
-        .or_else(|| env::var("GITLAB_HOST").ok())
+        .map(normalize_host)
+        .or_else(|| env::var("GITLAB_HOST").ok().map(|h| normalize_host(&h)))
         .unwrap_or_else(|| "gitlab.com".to_string());
 
     // Try glab CLI first

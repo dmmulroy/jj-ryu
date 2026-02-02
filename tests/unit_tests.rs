@@ -164,6 +164,66 @@ mod analysis_test {
     }
 }
 
+mod normalize_host_test {
+    use jj_ryu::normalize_host;
+
+    #[test]
+    fn test_bare_hostname_unchanged() {
+        assert_eq!(normalize_host("gitlab.com"), "gitlab.com");
+        assert_eq!(
+            normalize_host("github.enterprise.com"),
+            "github.enterprise.com"
+        );
+    }
+
+    #[test]
+    fn test_strips_https_protocol() {
+        assert_eq!(normalize_host("https://gitlab.com"), "gitlab.com");
+        assert_eq!(
+            normalize_host("https://gitlab.example.com"),
+            "gitlab.example.com"
+        );
+    }
+
+    #[test]
+    fn test_strips_http_protocol() {
+        assert_eq!(normalize_host("http://gitlab.com"), "gitlab.com");
+        assert_eq!(
+            normalize_host("http://gitlab.example.com"),
+            "gitlab.example.com"
+        );
+    }
+
+    #[test]
+    fn test_strips_trailing_slash() {
+        assert_eq!(normalize_host("gitlab.com/"), "gitlab.com");
+        assert_eq!(normalize_host("https://gitlab.com/"), "gitlab.com");
+    }
+
+    #[test]
+    fn test_strips_path() {
+        assert_eq!(normalize_host("https://gitlab.com/some/path"), "gitlab.com");
+        assert_eq!(normalize_host("gitlab.com/api/v4"), "gitlab.com");
+    }
+
+    #[test]
+    fn test_strips_whitespace() {
+        assert_eq!(normalize_host("  gitlab.com  "), "gitlab.com");
+        assert_eq!(normalize_host("  https://gitlab.com  "), "gitlab.com");
+    }
+    #[test]
+    fn test_github_enterprise_host() {
+        assert_eq!(
+            normalize_host("https://github.mycompany.com"),
+            "github.mycompany.com"
+        );
+        assert_eq!(
+            normalize_host("github.mycompany.com"),
+            "github.mycompany.com"
+        );
+    }
+}
+
 mod detection_test {
     use jj_ryu::error::Error;
     use jj_ryu::platform::{detect_platform, parse_repo_info};

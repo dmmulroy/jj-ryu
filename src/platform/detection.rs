@@ -1,7 +1,7 @@
 //! Platform detection from remote URLs
 
 use crate::error::{Error, Result};
-use crate::types::{Platform, PlatformConfig};
+use crate::types::{Platform, PlatformConfig, normalize_host};
 use regex::Regex;
 use std::env;
 use std::sync::LazyLock;
@@ -16,8 +16,8 @@ static RE_HTTPS: LazyLock<Regex> =
 
 /// Detect platform (GitHub or GitLab) from a remote URL
 pub fn detect_platform(url: &str) -> Option<Platform> {
-    let gh_host = env::var("GH_HOST").ok();
-    let gitlab_host = env::var("GITLAB_HOST").ok();
+    let gh_host = env::var("GH_HOST").ok().map(|h| normalize_host(&h));
+    let gitlab_host = env::var("GITLAB_HOST").ok().map(|h| normalize_host(&h));
 
     let hostname = extract_hostname(url)?;
 

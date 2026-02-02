@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::platform::PlatformService;
-use crate::types::{Platform, PlatformConfig, PrComment, PullRequest};
+use crate::types::{Platform, PlatformConfig, PrComment, PullRequest, normalize_host};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 impl GitLabService {
     /// Create a new GitLab service
     pub fn new(token: String, owner: String, repo: String, host: Option<String>) -> Result<Self> {
-        let host = host.unwrap_or_else(|| "gitlab.com".to_string());
+        let host = host.map_or_else(|| "gitlab.com".to_string(), |h| normalize_host(&h));
         let project_path = format!("{owner}/{repo}");
 
         let client = Client::builder()

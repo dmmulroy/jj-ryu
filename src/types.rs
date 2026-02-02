@@ -152,3 +152,30 @@ pub struct PlatformConfig {
     /// Custom host (None for github.com/gitlab.com)
     pub host: Option<String>,
 }
+
+/// Normalize a host value by stripping any protocol prefix and trailing slashes.
+///
+/// This handles cases where users provide a full URL (e.g., `https://gitlab.example.com/`)
+/// instead of a bare hostname (e.g., `gitlab.example.com`).
+///
+/// # Examples
+///
+/// ```
+/// use jj_ryu::normalize_host;
+///
+/// assert_eq!(normalize_host("gitlab.com"), "gitlab.com");
+/// assert_eq!(normalize_host("https://gitlab.com"), "gitlab.com");
+/// assert_eq!(normalize_host("http://gitlab.com/"), "gitlab.com");
+/// assert_eq!(normalize_host("https://gitlab.example.com/some/path"), "gitlab.example.com");
+/// ```
+#[must_use]
+pub fn normalize_host(host: &str) -> String {
+    let host = host
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+
+    let host = host.split('/').next().unwrap_or(host);
+
+    host.to_string()
+}

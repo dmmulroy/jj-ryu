@@ -405,15 +405,15 @@ fn format_stack_comment_for_platform(
         let is_current = i == reversed_idx;
         match platform {
             Platform::GitHub => {
-                // GitHub: "* PR title #N" - #N auto-links to PRs
+                // GitHub: "* #N" - GitHub auto-expands to show title with rich previews
                 if is_current {
                     let _ = writeln!(
                         body,
-                        "* **{} #{} {STACK_COMMENT_THIS_PR}**",
-                        item.pr_title, item.pr_number
+                        "* **#{} {STACK_COMMENT_THIS_PR}**",
+                        item.pr_number
                     );
                 } else {
-                    let _ = writeln!(body, "* {} #{}", item.pr_title, item.pr_number);
+                    let _ = writeln!(body, "* #{}", item.pr_number);
                 }
             }
             Platform::GitLab => {
@@ -801,6 +801,8 @@ mod tests {
             !body.contains("](https://github.com/test/test/pull"),
             "GitHub should NOT have markdown links to PRs: {body}"
         );
+        // Title should NOT be in the output - GitHub will auto-expand it
+        assert!(!body.contains("feat: add auth"), "GitHub auto-expands, so title should not be in source: {body}");
     }
 
     // === Plan helper tests ===

@@ -54,6 +54,7 @@ ryu sync
 ### GitHub
 
 Uses (in order):
+
 1. `gh auth token` (GitHub CLI)
 2. `GITHUB_TOKEN` env var
 3. `GH_TOKEN` env var
@@ -63,7 +64,8 @@ For GitHub Enterprise: `export GH_HOST=github.mycompany.com`
 ### GitLab
 
 Uses (in order):
-1. `glab auth token` (GitLab CLI)
+
+1. `glab status --show-token` (GitLab CLI)
 2. `GITLAB_TOKEN` env var
 3. `GL_TOKEN` env var
 
@@ -301,20 +303,21 @@ ryu auth gitlab setup   # Show setup instructions
 
 Ryu's CLI is inspired by Graphite. Here's how commands map:
 
-| Graphite | Ryu |
-|----------|-----|
-| `gt track` | `ryu track` |
-| `gt submit` | `ryu submit` |
-| `gt submit --stack` | `ryu submit --stack` |
-| `gt submit --only` | `ryu submit --only <bookmark>` |
-| `gt submit --draft` | `ryu submit --draft` |
-| `gt submit --publish` | `ryu submit --publish` |
-| `gt submit --confirm` | `ryu submit --confirm` |
-| `gt sync` | `ryu sync` |
-| `gt branch create` | `jj bookmark create` |
-| `gt restack` | `jj rebase` |
+| Graphite              | Ryu                            |
+| --------------------- | ------------------------------ |
+| `gt track`            | `ryu track`                    |
+| `gt submit`           | `ryu submit`                   |
+| `gt submit --stack`   | `ryu submit --stack`           |
+| `gt submit --only`    | `ryu submit --only <bookmark>` |
+| `gt submit --draft`   | `ryu submit --draft`           |
+| `gt submit --publish` | `ryu submit --publish`         |
+| `gt submit --confirm` | `ryu submit --confirm`         |
+| `gt sync`             | `ryu sync`                     |
+| `gt branch create`    | `jj bookmark create`           |
+| `gt restack`          | `jj rebase`                    |
 
 Key differences:
+
 - Ryu requires explicit tracking before submit (`ryu track`)
 - Stack management uses jj commands (`jj bookmark`, `jj rebase`), not ryu
 - `ryu sync --stack <bookmark>` syncs a single stack (Graphite syncs all)

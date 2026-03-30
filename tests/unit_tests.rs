@@ -213,9 +213,23 @@ mod detection_test {
     }
 
     #[test]
+    fn test_gitea_dot_com_returns_none() {
+        let platform = detect_platform("https://gitea.com/owner/repo.git");
+        assert_eq!(platform, None);
+    }
+
+    #[test]
     fn test_parse_unknown_platform_returns_error() {
         let result = parse_repo_info("https://bitbucket.org/owner/repo.git");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_unsupported_remote_error_mentions_gitea() {
+        assert_eq!(
+            Error::NoSupportedRemotes.to_string(),
+            "no supported remotes found (GitHub/GitLab/Gitea)"
+        );
     }
 
     #[test]
@@ -257,6 +271,67 @@ mod detection_test {
         let config = parse_repo_info("git@github.com:owner/repo.git").unwrap();
         assert_eq!(config.platform, Platform::GitHub);
         assert_eq!(config.repo, "repo"); // .git should be stripped
+    }
+}
+
+mod auth_test {
+    use jj_ryu::auth::{pick_gitea_env_token, resolve_gitea_host};
+
+    #[test]
+    fn test_resolve_gitea_host_prefers_explicit_arg() {
+        assert_eq!(
+            resolve_gitea_host(Some("git.example.local"), Some("gitea.example.com")),
+            "git.example.local"
+        );
+    }
+
+    #[test]
+    fn test_resolve_gitea_host_falls_back_to_env() {
+        assert_eq!(
+            resolve_gitea_host(None, Some("git.example.local")),
+            "git.example.local"
+        );
+    }
+
+    #[test]
+    fn test_resolve_gitea_host_returns_empty_without_sources() {
+        assert_eq!(resolve_gitea_host(None, None), "");
+    }
+
+    #[test]
+    fn test_pick_gitea_env_token_prefers_gitea_token() {
+        assert_eq!(
+            pick_gitea_env_token(Some("gitea-token"), Some("gt-token")),
+            Some("gitea-token".to_string())
+        );
+    }
+
+    #[test]
+    fn test_pick_gitea_env_token_can_chain_access_token_fallback() {
+        let access_like_token = pick_gitea_env_token(Some("access-token"), Some("gitea-key"));
+
+        assert_eq!(
+            pick_gitea_env_token(None, access_like_token.as_deref()),
+            Some("access-token".to_string())
+        );
+    }
+
+    #[test]
+    fn test_pick_gitea_env_token_can_chain_gitea_key_fallback() {
+        let access_like_token = pick_gitea_env_token(None, Some("gitea-key"));
+
+        assert_eq!(
+            pick_gitea_env_token(None, access_like_token.as_deref()),
+            Some("gitea-key".to_string())
+        );
+    }
+
+    #[test]
+    fn test_pick_gitea_env_token_falls_back_to_gt_token() {
+        assert_eq!(
+            pick_gitea_env_token(None, Some("gt-token")),
+            Some("gt-token".to_string())
+        );
     }
 }
 

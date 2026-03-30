@@ -11,7 +11,7 @@ mod cli;
 
 #[derive(Parser)]
 #[command(name = "ryu")]
-#[command(about = "Stacked PRs for Jujutsu - GitHub & GitLab")]
+#[command(about = "Stacked PRs for Jujutsu - GitHub, GitLab, & Gitea")]
 #[command(version)]
 struct Cli {
     /// Path to jj repository (defaults to current directory)
@@ -140,6 +140,11 @@ enum AuthPlatform {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Gitea authentication
+    Gitea {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -235,6 +240,13 @@ async fn main() -> Result<()> {
                     AuthAction::Setup => "setup",
                 };
                 cli::run_auth(Platform::GitLab, action_str).await?;
+            }
+            AuthPlatform::Gitea { action } => {
+                let action_str = match action {
+                    AuthAction::Test => "test",
+                    AuthAction::Setup => "setup",
+                };
+                cli::run_auth(Platform::Gitea, action_str).await?;
             }
         },
         Some(Commands::Track {

@@ -119,6 +119,16 @@ pub fn gitlab_config() -> PlatformConfig {
     }
 }
 
+/// Create a Gitea platform config
+pub fn gitea_config() -> PlatformConfig {
+    PlatformConfig {
+        platform: Platform::Gitea,
+        owner: "testowner".to_string(),
+        repo: "testrepo".to_string(),
+        host: Some("gitea.example.local".to_string()),
+    }
+}
+
 /// Build a linear stack graph: trunk -> bm1 -> bm2 -> bm3
 ///
 /// Returns a `ChangeGraph` with a single stack containing the given bookmarks.

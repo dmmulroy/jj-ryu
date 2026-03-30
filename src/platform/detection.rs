@@ -14,10 +14,11 @@ static RE_SSH: LazyLock<Regex> =
 static RE_HTTPS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"https?://[^/]+/(.+?)(?:\.git)?$").unwrap());
 
-/// Detect platform (GitHub or GitLab) from a remote URL
+/// Detect platform (GitHub, GitLab, or Gitea) from a remote URL
 pub fn detect_platform(url: &str) -> Option<Platform> {
     let gh_host = env::var("GH_HOST").ok();
     let gitlab_host = env::var("GITLAB_HOST").ok();
+    let gitea_host = env::var("GITEA_HOST").ok();
 
     let hostname = extract_hostname(url)?;
 
@@ -35,6 +36,11 @@ pub fn detect_platform(url: &str) -> Option<Platform> {
         || gitlab_host.as_ref().is_some_and(|h| hostname == *h)
     {
         return Some(Platform::GitLab);
+    }
+
+    // Check Gitea
+    if gitea_host.as_ref().is_some_and(|h| hostname == *h) {
+        return Some(Platform::Gitea);
     }
 
     None
@@ -80,6 +86,7 @@ pub fn parse_repo_info(url: &str) -> Result<PlatformConfig> {
                 None
             }
         }
+        Platform::Gitea => hostname,
     };
 
     Ok(PlatformConfig {

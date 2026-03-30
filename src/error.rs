@@ -24,8 +24,8 @@ pub enum Error {
     #[error("{0}")]
     NoStack(String),
 
-    /// No supported remotes (GitHub/GitLab) found
-    #[error("no supported remotes found (GitHub/GitLab)")]
+    /// No supported remotes (GitHub/GitLab/Gitea) found
+    #[error("no supported remotes found (GitHub/GitLab/Gitea)")]
     NoSupportedRemotes,
 
     /// Specified remote not found
@@ -43,6 +43,10 @@ pub enum Error {
     /// GitLab API error
     #[error("GitLab API error: {0}")]
     GitLabApi(String),
+
+    /// Gitea API error
+    #[error("Gitea API error: {0}")]
+    GiteaApi(String),
 
     /// Merge commit detected (cannot stack)
     #[error("merge commit detected in bookmark '{0}' history - rebasing required")]

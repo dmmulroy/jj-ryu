@@ -5,7 +5,7 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{MockPlatformService, TempJjRepo, github_config, make_pr};
+use common::{MockPlatformService, TempJjRepo, gitea_config, github_config, make_pr};
 use jj_ryu::graph::build_change_graph;
 use jj_ryu::submit::{ExecutionStep, analyze_submission, create_submission_plan};
 use predicates::prelude::*;
@@ -21,7 +21,8 @@ fn test_cli_help() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Stacked PRs for Jujutsu"));
+        .stdout(predicate::str::contains("Stacked PRs for Jujutsu"))
+        .stdout(predicate::str::contains("Gitea"));
 }
 
 #[test]
@@ -62,7 +63,24 @@ fn test_auth_help() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("github"))
-        .stdout(predicate::str::contains("gitlab"));
+        .stdout(predicate::str::contains("gitlab"))
+        .stdout(predicate::str::contains("gitea"));
+}
+
+#[test]
+fn test_gitea_auth_setup() {
+    let mut cmd = Command::cargo_bin("ryu").unwrap();
+    cmd.args(["auth", "gitea", "setup"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Gitea Authentication Setup"))
+        .stdout(predicate::str::contains("GITEA_HOST"))
+        .stdout(predicate::str::contains("GITEA_TOKEN"))
+        .stdout(predicate::str::contains("GITEA_ACCESS_TOKEN"))
+        .stdout(predicate::str::contains("GITEA_KEY"))
+        .stdout(predicate::str::contains("GT_TOKEN"))
+        .stdout(predicate::str::contains("tea login add"));
 }
 
 #[test]
@@ -335,6 +353,39 @@ async fn test_plan_pr_numbers_increment() {
 
     assert_eq!(creates[0].bookmark.name, "feat-a");
     assert_eq!(creates[1].bookmark.name, "feat-b");
+}
+
+#[tokio::test]
+async fn test_gitea_config_submission_plan_matches_existing_behavior() {
+    let repo = TempJjRepo::new();
+    repo.build_stack(&[("feat-a", "Add A"), ("feat-b", "Add B")]);
+
+    let workspace = repo.workspace();
+    let graph = build_change_graph(&workspace).expect("build graph");
+    let analysis = analyze_submission(&graph, Some("feat-b")).expect("analyze");
+
+    let mock = MockPlatformService::with_config(gitea_config());
+    mock.set_find_pr_response("feat-a", Some(make_pr(41, "feat-a", "main")));
+
+    let plan = create_submission_plan(&analysis, &mock, "origin", "main")
+        .await
+        .expect("create plan");
+
+    assert_eq!(plan.count_creates(), 1);
+    assert_eq!(plan.count_updates(), 0);
+    assert!(plan.existing_prs.contains_key("feat-a"));
+
+    let create = plan
+        .execution_steps
+        .iter()
+        .find_map(|step| match step {
+            ExecutionStep::CreatePr(create) => Some(create),
+            _ => None,
+        })
+        .expect("expected create step");
+
+    assert_eq!(create.bookmark.name, "feat-b");
+    assert_eq!(create.base_branch, "feat-a");
 }
 
 // =============================================================================

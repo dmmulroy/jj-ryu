@@ -2,7 +2,7 @@
 
 <img width="366" height="366" alt="image" src="https://github.com/user-attachments/assets/1691edfc-3b65-4f8d-b959-71ff21ff23e5" />
 
-Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark stacks to GitHub and GitLab as chained pull requests.
+Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark stacks to GitHub, GitLab, and Gitea as chained pull requests.
 
 ## What it does
 
@@ -69,11 +69,23 @@ Uses (in order):
 
 For self-hosted: `export GITLAB_HOST=gitlab.mycompany.com`
 
+### Gitea
+
+Uses (in order):
+1. `tea auth token --host <host>` (tea CLI)
+2. `GITEA_TOKEN` env var
+3. `GITEA_ACCESS_TOKEN` env var
+4. `GITEA_KEY` env var
+5. `GT_TOKEN` env var
+
+For self-hosted: `export GITEA_HOST=git.gmac.io`
+
 ### Test authentication
 
 ```sh
 ryu auth github test
 ryu auth gitlab test
+ryu auth gitea test
 ```
 
 ## Usage
@@ -142,6 +154,8 @@ Each PR gets a comment showing the full stack:
 This stack of pull requests is managed by jj-ryu.
 ```
 
+Same-repo PR stacks are supported first for Gitea. Depending on instance API behavior, draft PRs may use a `WIP:` title fallback until published.
+
 ### Syncing
 
 ```sh
@@ -171,6 +185,11 @@ ryu
 ryu track --all
 
 # Submit both as PRs (feat-session -> feat-auth -> main)
+ryu submit
+
+# Self-hosted Gitea example
+export GITEA_HOST=git.gmac.io
+ryu auth gitea test
 ryu submit
 
 # Make changes, then update PRs

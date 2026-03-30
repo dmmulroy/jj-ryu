@@ -1,14 +1,16 @@
-//! Platform services for GitHub and GitLab
+//! Platform services for GitHub, GitLab, and Gitea
 //!
 //! Provides a unified interface for PR/MR operations across platforms.
 
 mod detection;
 mod factory;
+mod gitea;
 mod github;
 mod gitlab;
 
 pub use detection::{detect_platform, parse_repo_info};
 pub use factory::create_platform_service;
+pub use gitea::GiteaService;
 pub use github::GitHubService;
 pub use gitlab::GitLabService;
 
@@ -18,7 +20,7 @@ use async_trait::async_trait;
 
 /// Platform service trait for PR/MR operations
 ///
-/// This trait abstracts GitHub and GitLab operations, allowing the same
+/// This trait abstracts supported platform operations, allowing the same
 /// submission logic to work with either platform.
 #[async_trait]
 pub trait PlatformService: Send + Sync {

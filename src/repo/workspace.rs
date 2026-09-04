@@ -3,24 +3,32 @@
 use crate::error::{Error, Result};
 use crate::types::{Bookmark, GitRemote, LogEntry};
 use chrono::{DateTime, TimeZone, Utc};
+use futures::StreamExt as _;
 use jj_lib::backend::Timestamp;
 use jj_lib::commit::Commit;
 use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
+use jj_lib::default_backend_factories::{
+    default_backend_factories, default_working_copy_factories,
+};
+use jj_lib::fileset::FilesetAliasesMap;
 use jj_lib::git::{
-    self, GitFetch, GitImportOptions, GitRefUpdate, GitSettings, RemoteCallbacks,
+    self, GitFetch, GitFetchRefExpression, GitImportOptions, GitProgress, GitPushOptions,
+    GitPushStats, GitRefUpdate, GitSettings, GitSidebandLineTerminator, GitSubprocessCallback,
     expand_fetch_refspecs,
 };
+use jj_lib::merge::Diff;
 use jj_lib::object_id::ObjectId;
 use jj_lib::op_store::{RemoteRef, RemoteRefState};
 use jj_lib::ref_name::{RefName, RemoteName};
-use jj_lib::repo::{Repo, StoreFactories};
-use jj_lib::repo_path::RepoPathUiConverter;
+use jj_lib::repo::Repo;
 use jj_lib::revset::{
     self, RevsetExtensions, RevsetParseContext, RevsetWorkspaceContext, SymbolResolver,
 };
 use jj_lib::settings::UserSettings;
 use jj_lib::str_util::{StringExpression, StringMatcher, StringPattern};
-use jj_lib::workspace::{Workspace, default_working_copy_factories};
+use jj_lib::ui_path::RepoPathUiConverter;
+use jj_lib::workspace::Workspace;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -28,6 +36,61 @@ use std::sync::Arc;
 pub struct JjWorkspace {
     workspace: Workspace,
     settings: UserSettings,
+}
+
+/// Discards Git subprocess progress while retaining command errors.
+#[derive(Debug)]
+struct NoopGitSubprocessCallback;
+
+impl GitSubprocessCallback for NoopGitSubprocessCallback {
+    fn needs_progress(&self) -> bool {
+        false
+    }
+
+    fn progress(&mut self, _progress: &GitProgress) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn local_sideband(
+        &mut self,
+        _message: &[u8],
+        _term: Option<GitSidebandLineTerminator>,
+    ) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn remote_sideband(
+        &mut self,
+        _message: &[u8],
+        _term: Option<GitSidebandLineTerminator>,
+    ) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Formats every rejected Git push result for a caller-visible error.
+fn format_git_push_rejections(stats: &GitPushStats) -> String {
+    let mut rejections = Vec::new();
+
+    for (ref_name, reason) in &stats.rejected {
+        rejections.push(format!(
+            "lease rejection for {} ({})",
+            ref_name.as_str(),
+            reason.as_deref().unwrap_or("no reason provided")
+        ));
+    }
+    for (ref_name, reason) in &stats.remote_rejected {
+        rejections.push(format!(
+            "remote rejection for {} ({})",
+            ref_name.as_str(),
+            reason.as_deref().unwrap_or("no reason provided")
+        ));
+    }
+    for (symbol, reason) in &stats.unexported_bookmarks {
+        rejections.push(format!("unexported bookmark {symbol} ({reason})"));
+    }
+
+    rejections.join("; ")
 }
 
 /// Create `UserSettings` with defaults for read operations
@@ -79,7 +142,7 @@ impl JjWorkspace {
         let workspace = Workspace::load(
             &settings,
             &workspace_root,
-            &StoreFactories::default(),
+            &default_backend_factories(),
             &default_working_copy_factories(),
         )
         .map_err(|e| Error::Workspace(format!("Failed to open workspace: {e}")))?;
@@ -92,9 +155,7 @@ impl JjWorkspace {
 
     /// Get the readonly repo at head operation
     fn repo(&self) -> Result<Arc<jj_lib::repo::ReadonlyRepo>> {
-        self.workspace
-            .repo_loader()
-            .load_at_head()
+        pollster::block_on(self.workspace.repo_loader().load_at_head())
             .map_err(|e| Error::Workspace(format!("Failed to load repo: {e}")))
     }
 
@@ -308,7 +369,7 @@ impl JjWorkspace {
         // Define trunk() alias - checks remote HEAD first, then falls back to jj's default
         let trunk_alias = Self::compute_trunk_alias(&repo);
         aliases
-            .insert("trunk()", trunk_alias)
+            .insert("trunk()", trunk_alias, None)
             .expect("trunk() alias declaration is valid");
 
         let date_context = jj_lib::time_util::DatePatternContext::Local(chrono::Local::now());
@@ -331,7 +392,7 @@ impl JjWorkspace {
             user_email: self.settings.user_email(),
             date_pattern_context: date_context,
             default_ignored_remote: Some(git::REMOTE_NAME_FOR_LOCAL_GIT_REPO),
-            use_glob_by_default: false,
+            fileset_aliases_map: &FilesetAliasesMap::default(),
             extensions: &extensions,
             workspace: Some(workspace_ctx),
         };
@@ -350,19 +411,21 @@ impl JjWorkspace {
             .evaluate(repo.as_ref())
             .map_err(|e| Error::Revset(format!("Failed to evaluate revset: {e}")))?;
 
-        let mut entries = Vec::new();
-        for commit_id in revset.iter() {
-            let commit_id =
-                commit_id.map_err(|e| Error::Revset(format!("Failed to iterate revset: {e}")))?;
-            let commit = repo
-                .store()
-                .get_commit(&commit_id)
-                .map_err(|e| Error::Workspace(format!("Failed to get commit: {e}")))?;
+        pollster::block_on(async {
+            let mut entries = Vec::new();
+            let mut commit_ids = revset.stream();
+            while let Some(commit_id) = commit_ids.next().await {
+                let commit_id = commit_id
+                    .map_err(|e| Error::Revset(format!("Failed to iterate revset: {e}")))?;
+                let commit = repo
+                    .store()
+                    .get_commit(&commit_id)
+                    .map_err(|e| Error::Workspace(format!("Failed to get commit: {e}")))?;
 
-            entries.push(Self::commit_to_log_entry(&repo, &commit));
-        }
-
-        Ok(entries)
+                entries.push(Self::commit_to_log_entry(&repo, &commit));
+            }
+            Ok(entries)
+        })
     }
 
     /// Convert a jj commit to a `LogEntry`
@@ -464,8 +527,8 @@ impl JjWorkspace {
         let mut tx = repo.start_transaction();
 
         let import_options = GitImportOptions {
-            auto_local_bookmark: git_settings.auto_local_bookmark,
             abandon_unreachable_commits: git_settings.abandon_unreachable_commits,
+            record_synthetic_predecessors: git_settings.record_synthetic_predecessors,
             remote_auto_track_bookmarks: std::iter::once((
                 RemoteName::new(remote).to_owned(),
                 StringMatcher::all(),
@@ -480,34 +543,34 @@ impl JjWorkspace {
         .map_err(|e| Error::Git(format!("Failed to create fetch: {e}")))?;
 
         let remote_name = RemoteName::new(remote);
-        let refspecs = expand_fetch_refspecs(remote_name, StringExpression::all())
-            .map_err(|e| Error::Git(format!("Failed to expand refspecs: {e}")))?;
+        let refspecs = expand_fetch_refspecs(
+            remote_name,
+            GitFetchRefExpression {
+                bookmark: StringExpression::all(),
+                // jj-lib 0.45 forces `--no-tags` for this choice. Ryu models bookmark
+                // stacks only, so avoid fetching unrelated tags as part of stack sync.
+                tag: StringExpression::none(),
+            },
+        )
+        .map_err(|e| Error::Git(format!("Failed to expand refspecs: {e}")))?;
         fetch
-            .fetch(
-                remote_name,
-                refspecs,
-                RemoteCallbacks::default(),
-                None,
-                None,
-            )
+            .fetch(remote_name, refspecs, &mut NoopGitSubprocessCallback, None)
             .map_err(|e| Error::Git(format!("Failed to fetch: {e}")))?;
 
         // Import the fetched refs
-        fetch
-            .import_refs()
+        pollster::block_on(fetch.import_refs())
             .map_err(|e| Error::Git(format!("Failed to import refs: {e}")))?;
 
         // Rebase descendants if there were any rewrites from the import
         // This is required before committing the transaction - see issue #8
         // Without this, jj-lib panics with "BUG: Descendants have not been rebased"
         if tx.repo().has_rewrites() {
-            tx.repo_mut()
-                .rebase_descendants()
+            pollster::block_on(tx.repo_mut().rebase_descendants())
                 .map_err(|e| Error::Git(format!("Failed to rebase descendants: {e}")))?;
         }
 
         // Commit the transaction
-        tx.commit(format!("fetch from {remote}"))
+        pollster::block_on(tx.commit(format!("fetch from {remote}")))
             .map_err(|e| Error::Git(format!("Failed to commit fetch: {e}")))?;
 
         Ok(())
@@ -557,18 +620,27 @@ impl JjWorkspace {
         // Build the update for pushing
         let update = GitRefUpdate {
             qualified_name: format!("refs/heads/{bookmark}").into(),
-            expected_current_target,
-            new_target,
+            targets: Diff::new(expected_current_target, new_target).map(|target| {
+                target.map(|commit_id| gix::ObjectId::from_bytes_or_panic(commit_id.as_bytes()))
+            }),
         };
 
-        git::push_updates(
+        let push_stats = git::push_updates(
             tx.repo_mut().base_repo().as_ref(),
             git_settings.to_subprocess_options(),
             remote_name,
             &[update],
-            RemoteCallbacks::default(),
+            &mut NoopGitSubprocessCallback,
+            &GitPushOptions::default(),
         )
         .map_err(|e| Error::Git(format!("Failed to push: {e}")))?;
+
+        if !push_stats.all_ok() {
+            return Err(Error::Git(format!(
+                "Push rejected for bookmark '{bookmark}': {}",
+                format_git_push_rejections(&push_stats)
+            )));
+        }
 
         // Update the remote tracking ref to match what we just pushed
         // This ensures the bookmark shows as "synced" after push
@@ -578,7 +650,7 @@ impl JjWorkspace {
         };
         tx.repo_mut().set_remote_bookmark(remote_symbol, remote_ref);
 
-        tx.commit(format!("push {bookmark} to {remote}"))
+        pollster::block_on(tx.commit(format!("push {bookmark} to {remote}")))
             .map_err(|e| Error::Git(format!("Failed to commit push: {e}")))?;
 
         Ok(())
@@ -668,5 +740,32 @@ mod tests {
         // Should not panic even without user config
         let settings = create_user_settings();
         assert!(settings.is_ok());
+    }
+
+    #[test]
+    fn test_format_git_push_rejections_lists_every_rejection_category() {
+        let remote_symbol = RefName::new("unexported")
+            .to_remote_symbol(RemoteName::new("origin"))
+            .to_owned();
+        let stats = GitPushStats {
+            rejected: vec![(
+                "refs/heads/lease-failed".into(),
+                Some("stale info".to_string()),
+            )],
+            remote_rejected: vec![(
+                "refs/heads/hook-failed".into(),
+                Some("hook declined".to_string()),
+            )],
+            unexported_bookmarks: vec![(
+                remote_symbol,
+                jj_lib::git::FailedRefExportReason::InvalidGitName,
+            )],
+            ..GitPushStats::default()
+        };
+
+        assert_eq!(
+            format_git_push_rejections(&stats),
+            "lease rejection for refs/heads/lease-failed (stale info); remote rejection for refs/heads/hook-failed (hook declined); unexported bookmark unexported@origin (Name is not allowed in Git)"
+        );
     }
 }

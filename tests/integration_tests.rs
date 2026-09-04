@@ -95,6 +95,38 @@ fn test_temp_repo_graph_building() {
 }
 
 #[test]
+fn test_non_linear_stack_reports_unsupported_merge() {
+    let repo = TempJjRepo::new();
+    for (bookmark, message) in [
+        ("bookmark-b", "feature B"),
+        ("bookmark-c", "feature C"),
+        ("bookmark-d", "feature D"),
+    ] {
+        repo.run_jj(&["new", "root()", "-m", message]);
+        repo.create_bookmark(bookmark);
+    }
+    repo.run_jj(&[
+        "new",
+        "bookmark-b",
+        "bookmark-c",
+        "bookmark-d",
+        "-m",
+        "merge",
+    ]);
+
+    let mut cmd = Command::cargo_bin("ryu").unwrap();
+    cmd.current_dir(repo.path());
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "unsupported non-linear stack: merge commit",
+        ))
+        .stderr(predicate::str::contains("rebase into a linear stack"))
+        .stderr(predicate::str::contains("No bookmark stack found").not());
+}
+
+#[test]
 fn test_analyze_real_repo_stack() {
     let repo = TempJjRepo::new();
     repo.build_stack(&[

@@ -3,7 +3,7 @@
 //! Builds a `ChangeGraph` from jj workspace state.
 //! Uses single-stack semantics: only the stack from trunk to working copy.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::repo::JjWorkspace;
 use crate::types::{Bookmark, BookmarkSegment, BranchStack, ChangeGraph, LogEntry};
 use std::collections::HashMap;
@@ -19,6 +19,8 @@ use tracing::debug;
 ///   This allows callers to validate bookmark existence before submission.
 /// - `stack: Some(...)` if there are bookmarked commits between trunk and @
 /// - `stack: None` if working copy is at trunk or no bookmarks exist
+///
+/// Returns [`Error::MergeCommitDetected`] when `trunk()..@` is non-linear.
 pub fn build_change_graph(workspace: &JjWorkspace) -> Result<ChangeGraph> {
     debug!("Building change graph from trunk to working copy...");
 
@@ -32,16 +34,11 @@ pub fn build_change_graph(workspace: &JjWorkspace) -> Result<ChangeGraph> {
 
     debug!("Found {} commits between trunk and @", changes.len());
 
-    // Check for merge commits - we don't support them
+    // A merge makes parent-child PR bases ambiguous, so reject the whole non-linear stack.
     for change in &changes {
         if change.parents.len() > 1 {
-            debug!("Found merge commit {} - excluding stack", change.commit_id);
-            return Ok(ChangeGraph {
-                bookmarks: HashMap::new(),
-                stack: None,
-                // Signals merge commit exclusion occurred, not actual count of excluded bookmarks
-                excluded_bookmark_count: 1,
-            });
+            debug!("Found unsupported merge commit {}", change.commit_id);
+            return Err(Error::MergeCommitDetected(change.commit_id.clone()));
         }
     }
 

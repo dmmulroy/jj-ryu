@@ -22,7 +22,7 @@ pub struct GitLabAuthConfig {
 /// Get GitLab authentication
 ///
 /// Priority:
-/// 1. glab CLI (`glab auth token`)
+/// 1. glab CLI (`glab auth status --show-token`)
 /// 2. `GITLAB_TOKEN` environment variable
 /// 3. `GL_TOKEN` environment variable
 pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
@@ -69,23 +69,8 @@ pub async fn get_gitlab_auth(host: Option<&str>) -> Result<GitLabAuthConfig> {
 }
 
 async fn get_glab_cli_token(host: &str) -> Option<String> {
-    // Check glab is available
-    Command::new("glab").arg("--version").output().await.ok()?;
-
-    // Check authenticated
-    let status = Command::new("glab")
-        .args(["auth", "status", "--hostname", host])
-        .output()
-        .await
-        .ok()?;
-
-    if !status.status.success() {
-        return None;
-    }
-
-    // Get token
     let output = Command::new("glab")
-        .args(["auth", "token", "--hostname", host])
+        .args(["auth", "status", "--show-token", "--hostname", host])
         .output()
         .await
         .ok()?;
@@ -94,8 +79,27 @@ async fn get_glab_cli_token(host: &str) -> Option<String> {
         return None;
     }
 
-    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() { None } else { Some(token) }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    parse_glab_token_from_status(&format!("{stdout}\n{stderr}"))
+}
+
+/// Parse an unmasked token from current or older `glab auth status --show-token` output.
+pub fn parse_glab_token_from_status(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let token = line
+            .split_once("Token found in ")
+            .and_then(|(_, source_and_token)| source_and_token.split_once(':'))
+            .map(|(_, token)| token)
+            .or_else(|| line.split_once("Token found:").map(|(_, token)| token))?
+            .trim();
+
+        if token.is_empty() || token.chars().all(|character| character == '*') {
+            None
+        } else {
+            Some(token.to_string())
+        }
+    })
 }
 
 #[derive(Deserialize)]

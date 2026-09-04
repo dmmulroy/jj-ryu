@@ -164,6 +164,40 @@ mod analysis_test {
     }
 }
 
+mod gitlab_auth_test {
+    use jj_ryu::auth::parse_glab_token_from_status;
+
+    #[test]
+    fn test_parse_current_glab_token_output() {
+        let output = "gitlab.com\n  ✓ Logged in\n  Token found in keyring: glpat-current-token\n";
+
+        assert_eq!(
+            parse_glab_token_from_status(output),
+            Some("glpat-current-token".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_older_glab_token_output() {
+        let output = "gitlab.com\n  Token found: glpat-older-token\n";
+
+        assert_eq!(
+            parse_glab_token_from_status(output),
+            Some("glpat-older-token".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_glab_token_rejects_masked_or_missing_values() {
+        assert_eq!(
+            parse_glab_token_from_status("Token found in keyring: ********"),
+            None
+        );
+        assert_eq!(parse_glab_token_from_status("Token found: "), None);
+        assert_eq!(parse_glab_token_from_status("Not logged in"), None);
+    }
+}
+
 mod detection_test {
     use jj_ryu::error::Error;
     use jj_ryu::platform::{detect_platform, parse_repo_info};

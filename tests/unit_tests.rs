@@ -818,7 +818,8 @@ mod stack_comment_test {
     }
 
     #[test]
-    fn test_format_body_contains_pr_title() {
+    fn test_format_body_github_no_duplicate_title() {
+        // GitHub format should NOT contain PR title since GitHub auto-expands #N references
         let data = StackCommentData {
             version: 1,
             stack: vec![make_stack_item("feat-a", 1)],
@@ -827,9 +828,12 @@ mod stack_comment_test {
 
         let body = format_stack_comment(&data, 0).unwrap();
 
+        // Should contain the PR number reference
+        assert!(body.contains("#1"), "body should contain #1: {body}");
+        // Should NOT contain the PR title (GitHub will auto-expand it)
         assert!(
-            body.contains("feat: feat-a"),
-            "body should contain PR title: {body}"
+            !body.contains("feat: feat-a"),
+            "body should NOT contain PR title (GitHub auto-expands): {body}"
         );
     }
 }

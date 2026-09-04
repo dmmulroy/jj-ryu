@@ -30,7 +30,7 @@ clap = { version = "4.5", features = ["derive"] }
 
 # HTTP + APIs (rustls for cross-platform builds)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-octocrab = { version = "0.47", default-features = false, features = ["rustls", "default-client"] }
+octocrab = { version = "0.54.1", default-features = false, features = ["rustls", "rustls-ring", "jwt-aws-lc-rs", "default-client"] }
 
 # serialization + utilities
 serde = { version = "1", features = ["derive"] }

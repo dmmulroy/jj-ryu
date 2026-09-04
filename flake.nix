@@ -16,7 +16,7 @@
     }:
     {
       overlays.default = final: prev: {
-        jj-ryu = self.packages.${final.system}.ryu;
+        jj-ryu = self.packages.${final.stdenv.hostPlatform.system}.ryu;
       };
     }
     // flake-utils.lib.eachDefaultSystem (

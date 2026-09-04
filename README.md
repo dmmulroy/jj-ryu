@@ -21,6 +21,8 @@ Stacked PRs for [Jujutsu](https://jj-vcs.github.io/jj/latest/). Push bookmark st
 
 Each bookmark becomes a PR targeting the previous bookmark (or trunk). When you update your stack, `ryu` updates the PRs.
 
+Ryu currently supports linear stacks only. If `trunk()..@` contains a merge commit, rebase the changes into a linear stack before using Ryu.
+
 ## Install
 
 ```sh

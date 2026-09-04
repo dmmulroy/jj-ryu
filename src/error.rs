@@ -44,8 +44,10 @@ pub enum Error {
     #[error("GitLab API error: {0}")]
     GitLabApi(String),
 
-    /// Merge commit detected (cannot stack)
-    #[error("merge commit detected in bookmark '{0}' history - rebasing required")]
+    /// A merge commit makes the stack non-linear and unsupported.
+    #[error(
+        "unsupported non-linear stack: merge commit {0} detected between trunk() and @; rebase into a linear stack before using ryu"
+    )]
     MergeCommitDetected(String),
 
     /// Revset evaluation failed

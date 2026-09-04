@@ -370,8 +370,180 @@ async fn test_plan_pr_numbers_increment() {
 }
 
 // =============================================================================
-// Git Fetch Tests (Issue #8)
+// Git Integration Tests
 // =============================================================================
+
+fn bare_remote_bookmark_oid(remote_path: &std::path::Path, bookmark: &str) -> String {
+    let output = StdCommand::new("git")
+        .args(["rev-parse", &format!("refs/heads/{bookmark}")])
+        .current_dir(remote_path)
+        .output()
+        .expect("read bare remote bookmark");
+    assert!(
+        output.status.success(),
+        "remote bookmark should exist: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn remote_bookmark_state(
+    repo_path: &std::path::Path,
+    bookmark: &str,
+    remote: &str,
+) -> jj_lib::op_store::RemoteRefState {
+    use jj_lib::config::{ConfigLayer, ConfigSource, StackedConfig};
+    use jj_lib::default_backend_factories::{
+        default_backend_factories, default_working_copy_factories,
+    };
+    use jj_lib::ref_name::{RefName, RemoteName};
+    use jj_lib::settings::UserSettings;
+    use jj_lib::workspace::Workspace;
+
+    let mut config = StackedConfig::with_defaults();
+    let mut user_layer = ConfigLayer::empty(ConfigSource::User);
+    user_layer
+        .set_value("user.name", "jj-ryu-test")
+        .expect("set test user name");
+    user_layer
+        .set_value("user.email", "jj-ryu-test@localhost")
+        .expect("set test user email");
+    config.add_layer(user_layer);
+    let settings = UserSettings::from_config(config).expect("create test settings");
+    let workspace = Workspace::load(
+        &settings,
+        repo_path,
+        &default_backend_factories(),
+        &default_working_copy_factories(),
+    )
+    .expect("load jj workspace");
+    let repo = pollster::block_on(workspace.repo_loader().load_at_head()).expect("load jj repo");
+    let symbol = RefName::new(bookmark).to_remote_symbol(RemoteName::new(remote));
+    repo.view().get_remote_bookmark(symbol).state
+}
+
+#[test]
+fn test_git_push_updates_remote_and_tracking_bookmark() {
+    let repo = TempJjRepo::new();
+    repo.commit("Add feature A");
+    repo.create_bookmark("feat-a");
+    let (_remote_dir, remote_path) = TempJjRepo::create_bare_remote();
+    repo.add_remote("origin", &remote_path);
+
+    let mut workspace = repo.workspace();
+    workspace
+        .git_push("feat-a", "origin")
+        .expect("push feat-a bookmark");
+
+    let remote_oid = bare_remote_bookmark_oid(&remote_path, "feat-a");
+    let bookmark = workspace
+        .get_local_bookmark("feat-a")
+        .expect("read local bookmark")
+        .expect("feat-a bookmark should exist");
+    assert_eq!(remote_oid, bookmark.commit_id);
+    assert_eq!(
+        remote_bookmark_state(repo.path(), "feat-a", "origin"),
+        jj_lib::op_store::RemoteRefState::Tracked
+    );
+    assert!(bookmark.has_remote);
+    assert!(bookmark.is_synced);
+}
+
+#[test]
+fn test_git_push_rejects_stale_remote_lease_without_updating_tracking() {
+    let repo = TempJjRepo::new();
+    repo.commit("Add feature A");
+    repo.create_bookmark("feat-a");
+    let (_remote_dir, remote_path) = TempJjRepo::create_bare_remote();
+    repo.add_remote("origin", &remote_path);
+
+    let mut workspace = repo.workspace();
+    workspace
+        .git_push("feat-a", "origin")
+        .expect("initial push should succeed");
+    let original_remote_oid = bare_remote_bookmark_oid(&remote_path, "feat-a");
+
+    let tree_oid = StdCommand::new("git")
+        .args(["rev-parse", "refs/heads/feat-a^{tree}"])
+        .current_dir(&remote_path)
+        .output()
+        .expect("read remote tree");
+    assert!(tree_oid.status.success(), "read remote tree");
+    let tree_oid = String::from_utf8_lossy(&tree_oid.stdout).trim().to_string();
+    let remote_commit = StdCommand::new("git")
+        .args([
+            "-c",
+            "user.name=Remote User",
+            "-c",
+            "user.email=remote@example.com",
+            "commit-tree",
+            &tree_oid,
+            "-p",
+            &original_remote_oid,
+            "-m",
+            "Advance remote",
+        ])
+        .current_dir(&remote_path)
+        .output()
+        .expect("create remote commit");
+    assert!(
+        remote_commit.status.success(),
+        "create remote commit: {}",
+        String::from_utf8_lossy(&remote_commit.stderr)
+    );
+    let advanced_remote_oid = String::from_utf8_lossy(&remote_commit.stdout)
+        .trim()
+        .to_string();
+    let update_remote = StdCommand::new("git")
+        .args([
+            "update-ref",
+            "refs/heads/feat-a",
+            &advanced_remote_oid,
+            &original_remote_oid,
+        ])
+        .current_dir(&remote_path)
+        .output()
+        .expect("advance remote bookmark");
+    assert!(
+        update_remote.status.success(),
+        "advance remote bookmark: {}",
+        String::from_utf8_lossy(&update_remote.stderr)
+    );
+
+    repo.commit("Advance local");
+    repo.move_bookmark("feat-a", "@-");
+    let mut workspace = repo.workspace();
+    let local_commit_id = workspace
+        .get_local_bookmark("feat-a")
+        .expect("read local bookmark")
+        .expect("feat-a bookmark should exist")
+        .commit_id;
+
+    let error = workspace
+        .git_push("feat-a", "origin")
+        .expect_err("stale remote lease should reject push");
+    let error_message = error.to_string();
+    assert!(error_message.contains("lease"), "{error_message}");
+    assert!(
+        error_message.contains("refs/heads/feat-a"),
+        "{error_message}"
+    );
+    assert_eq!(
+        bare_remote_bookmark_oid(&remote_path, "feat-a"),
+        advanced_remote_oid
+    );
+
+    let remote_bookmark = workspace
+        .get_remote_bookmark("feat-a", "origin")
+        .expect("read tracked remote bookmark")
+        .expect("tracked remote bookmark should exist");
+    assert_eq!(remote_bookmark.commit_id, original_remote_oid);
+    assert_ne!(remote_bookmark.commit_id, local_commit_id);
+    assert_eq!(
+        remote_bookmark_state(repo.path(), "feat-a", "origin"),
+        jj_lib::op_store::RemoteRefState::Tracked
+    );
+}
 
 /// Test that `git_fetch` handles rewrites after fetching rebased commits.
 ///

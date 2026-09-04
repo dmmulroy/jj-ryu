@@ -17,8 +17,10 @@ path = "src/lib.rs"
 
 [dependencies]
 # jj integration
-jj-lib = "0.37"
-gix = { version = "0.77", default-features = false, features = ["blocking-network-client"] }
+jj-lib = "0.45.1"
+gix = { version = "0.87.1", default-features = false, features = ["blocking-network-client"] }
+futures = "0.3"
+pollster = "1"
 
 # async runtime
 tokio = { version = "1", features = ["full"] }

@@ -204,16 +204,7 @@ jobs:
           path: artifacts
 
       - name: Create release archives
-        run: |
-          mkdir -p release
-          for platform in artifacts/*/; do
-            name=$(basename "$platform")
-            if [[ "$name" == win32-* ]]; then
-              (cd "$platform" && zip -r "../../release/ryu-${name}.zip" .)
-            else
-              (cd "$platform" && tar -czvf "../../release/ryu-${name}.tar.gz" .)
-            fi
-          done
+        run: scripts/create-release-archives.sh
 
       - name: Generate checksums
         run: |

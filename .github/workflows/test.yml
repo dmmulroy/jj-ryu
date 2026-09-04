@@ -109,7 +109,8 @@ jobs:
 
       - name: Check flake
         if: steps.filter.outputs.nix == 'true'
-        run: nix flake check
+        # Avoid crates.io throttling when Nix fetches each Cargo dependency.
+        run: nix flake check --max-jobs 1
 
   # E2E tests run only on main branch with secrets
   e2e:

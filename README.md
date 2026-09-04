@@ -65,7 +65,7 @@ For GitHub Enterprise: `export GH_HOST=github.mycompany.com`
 ### GitLab
 
 Uses (in order):
-1. `glab auth token` (GitLab CLI)
+1. `glab auth status --show-token` (GitLab CLI)
 2. `GITLAB_TOKEN` env var
 3. `GL_TOKEN` env var
 

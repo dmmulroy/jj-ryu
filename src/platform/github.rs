@@ -114,7 +114,7 @@ fn pr_from_octocrab(pr: &octocrab::models::pulls::PullRequest) -> PullRequest {
 impl PlatformService for GitHubService {
     async fn find_existing_pr(&self, head_branch: &str) -> Result<Option<PullRequest>> {
         debug!(head_branch, "finding existing PR");
-        let head = format!("{}:{}", &self.config.owner, head_branch);
+        let head = format!("{}:{}", self.config.owner, head_branch);
 
         let prs = self
             .client

@@ -239,7 +239,7 @@ impl E2ERepo {
             .current_dir(self.path())
             .output();
 
-        if !new_output.map(|o| o.status.success()).unwrap_or(false) {
+        if !new_output.is_ok_and(|o| o.status.success()) {
             return false;
         }
 
@@ -256,7 +256,7 @@ impl E2ERepo {
             .current_dir(self.path())
             .output();
 
-        squash.map(|o| o.status.success()).unwrap_or(false)
+        squash.is_ok_and(|o| o.status.success())
     }
 
     /// Create a bookmark at current commit
@@ -267,7 +267,7 @@ impl E2ERepo {
             .current_dir(self.path())
             .output();
 
-        if output.map(|o| o.status.success()).unwrap_or(false) {
+        if output.is_ok_and(|o| o.status.success()) {
             self.created_bookmarks.push(full_name);
             true
         } else {
@@ -448,7 +448,7 @@ fn merge_pr(pr_number: u64) -> bool {
         ])
         .output();
 
-    output.map(|o| o.status.success()).unwrap_or(false)
+    output.is_ok_and(|o| o.status.success())
 }
 
 /// Get PR state (OPEN, MERGED, CLOSED)

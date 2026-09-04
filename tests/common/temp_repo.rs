@@ -201,26 +201,10 @@ impl TempJjRepo {
         self.run_jj(&["git", "remote", "add", name, &path.to_string_lossy()]);
     }
 
-    /// Push a bookmark to a remote using jj
-    ///
-    /// Automatically tracks the bookmark first if needed.
+    /// Push a bookmark to a remote using jj, automatically tracking it.
     #[allow(dead_code)]
     pub fn push_bookmark(&self, bookmark: &str, remote: &str) {
-        // Track bookmark first (required for new remotes)
-        let _ = Command::new("jj")
-            .args(["bookmark", "track", bookmark, &format!("--remote={remote}")])
-            .current_dir(self.dir.path())
-            .output();
-
-        self.run_jj(&[
-            "git",
-            "push",
-            "--bookmark",
-            bookmark,
-            "--remote",
-            remote,
-            "--allow-new",
-        ]);
+        self.run_jj(&["git", "push", "--bookmark", bookmark, "--remote", remote]);
     }
 
     /// Create a bare git repository for use as a remote

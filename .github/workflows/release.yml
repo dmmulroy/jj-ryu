@@ -300,7 +300,7 @@ jobs:
           # Skip win32 packages for now (npm spam detection issue)
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             echo "Publishing jj-ryu-$platform..."
-            npm publish "./npm/$platform" --access public || {
+            npm publish "./npm/$platform" --access public --tag latest || {
               if npm view "jj-ryu-$platform@$VERSION" > /dev/null 2>&1; then
                 echo "Version already published, skipping"
               else
@@ -313,7 +313,7 @@ jobs:
         run: |
           VERSION=${{ needs.validate.outputs.version }}
           echo "Publishing jj-ryu..."
-          npm publish ./npm/jj-ryu --access public || {
+          npm publish ./npm/jj-ryu --access public --tag latest || {
             if npm view "jj-ryu@$VERSION" > /dev/null 2>&1; then
               echo "Version already published, skipping"
             else

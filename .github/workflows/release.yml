@@ -7,6 +7,11 @@ on:
         description: "Version to release (e.g., 0.1.0, 0.2.0-beta.1)"
         required: true
         type: string
+      npm-only:
+        description: "Publish npm packages from an existing GitHub release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -47,10 +52,16 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Check tag doesn't exist
+      - name: Check release tag state
         run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "::error::Tag v${{ steps.version.outputs.version }} already exists"
+          TAG="v${{ steps.version.outputs.version }}"
+          if [[ "${{ inputs['npm-only'] }}" == "true" ]]; then
+            if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "::error::npm-only publishing requires existing tag $TAG"
+              exit 1
+            fi
+          elif git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists"
             exit 1
           fi
 
@@ -63,6 +74,7 @@ jobs:
 
   test:
     needs: validate
+    if: ${{ inputs['npm-only'] == false }}
     uses: ./.github/workflows/test.yml
 
   prepare:
@@ -209,7 +221,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum * > checksums-sha256.txt
+          sha256sum -- ./ryu-* > checksums-sha256.txt
           cat checksums-sha256.txt
 
       - name: Create GitHub Release
@@ -220,28 +232,57 @@ jobs:
           generate_release_notes: true
 
   publish-npm:
-    needs: [prepare, build]
+    needs: [validate, prepare, build]
+    if: ${{ always() && needs.validate.result == 'success' && (inputs['npm-only'] || (needs.prepare.result == 'success' && needs.build.result == 'success')) }}
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: v${{ needs.prepare.outputs.version }}
+          ref: v${{ needs.validate.outputs.version }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
-      - name: Download all artifacts
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@^11.15.0
+
+      - name: Download build artifacts
+        if: ${{ inputs['npm-only'] == false }}
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      - name: Download existing GitHub release archives
+        if: ${{ inputs['npm-only'] }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release
+          gh release download "v${{ needs.validate.outputs.version }}" \
+            --pattern 'ryu-*.tar.gz' \
+            --pattern 'ryu-*.zip' \
+            --dir release
+
+      - name: Extract existing GitHub release artifacts
+        if: ${{ inputs['npm-only'] }}
+        run: |
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
+            mkdir -p "artifacts/$platform"
+            tar -xzf "release/ryu-$platform.tar.gz" -C "artifacts/$platform"
+          done
+          for platform in win32-arm64 win32-x64; do
+            mkdir -p "artifacts/$platform"
+            unzip -q "release/ryu-$platform.zip" -d "artifacts/$platform"
+          done
+
       - name: Prepare platform packages
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION=${{ needs.validate.outputs.version }}
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl win32-arm64 win32-x64; do
             mkdir -p npm/$platform
             if [[ "$platform" == win32-* ]]; then
@@ -250,18 +291,16 @@ jobs:
               cp artifacts/$platform/ryu npm/$platform/
               chmod +x npm/$platform/ryu
             fi
-            node npm/scripts/generate-platform-package.mjs $platform $VERSION
+            node npm/scripts/generate-platform-package.mjs "$platform" "$VERSION"
           done
 
-      - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish platform packages with npm trusted publishing
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION=${{ needs.validate.outputs.version }}
           # Skip win32 packages for now (npm spam detection issue)
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 linux-arm64-musl linux-x64-musl; do
             echo "Publishing jj-ryu-$platform..."
-            npm publish ./npm/$platform --access public --provenance || {
+            npm publish "./npm/$platform" --access public || {
               if npm view "jj-ryu-$platform@$VERSION" > /dev/null 2>&1; then
                 echo "Version already published, skipping"
               else
@@ -270,13 +309,11 @@ jobs:
             }
           done
 
-      - name: Publish main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish main package with npm trusted publishing
         run: |
-          VERSION=${{ needs.prepare.outputs.version }}
+          VERSION=${{ needs.validate.outputs.version }}
           echo "Publishing jj-ryu..."
-          npm publish ./npm/jj-ryu --access public --provenance || {
+          npm publish ./npm/jj-ryu --access public || {
             if npm view "jj-ryu@$VERSION" > /dev/null 2>&1; then
               echo "Version already published, skipping"
             else
@@ -321,8 +358,9 @@ jobs:
       - name: Get tarball SHA256
         id: sha
         run: |
-          sha=$(curl -sL https://github.com/dmmulroy/jj-ryu/archive/refs/tags/v${{ needs.prepare.outputs.version }}.tar.gz | shasum -a 256 | cut -d' ' -f1)
-          echo "sha256=$sha" >> $GITHUB_OUTPUT
+          TAG_URL="https://github.com/dmmulroy/jj-ryu/archive/refs/tags/v${{ needs.prepare.outputs.version }}.tar.gz"
+          sha=$(curl -sL "$TAG_URL" | shasum -a 256 | cut -d' ' -f1)
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout homebrew-tap
         uses: actions/checkout@v4
@@ -346,18 +384,20 @@ jobs:
           base: main
 
   summary:
-    needs: [prepare, release, publish-npm, publish-crates, homebrew]
+    needs: [validate, prepare, release, publish-npm, publish-crates, homebrew]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Summary
         run: |
-          echo "## Release v${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| GitHub Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| npm | ${{ needs.publish-npm.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| crates.io | ${{ needs.publish-crates.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Homebrew | ${{ needs.homebrew.result }} |" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Release v${{ needs.validate.outputs.version }}"
+            echo ""
+            echo "| Component | Status |"
+            echo "|-----------|--------|"
+            echo "| GitHub Release | ${{ needs.release.result }} |"
+            echo "| npm | ${{ needs.publish-npm.result }} |"
+            echo "| crates.io | ${{ needs.publish-crates.result }} |"
+            echo "| Homebrew | ${{ needs.homebrew.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

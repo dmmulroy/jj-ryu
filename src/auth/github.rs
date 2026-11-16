@@ -90,7 +90,7 @@ async fn get_gh_cli_token() -> Option<String> {
 pub async fn test_github_auth(config: &GitHubAuthConfig) -> Result<String> {
     let octocrab = octocrab::Octocrab::builder()
         .personal_token(config.token.clone())
-        .build()
+        .build_with_reqwest(octocrab::ReqwestClientConfig::Default)
         .map_err(|e| Error::GitHubApi(e.to_string()))?;
 
     let user = octocrab

@@ -79,7 +79,7 @@ impl GitHubService {
         }
 
         let client = builder
-            .build()
+            .build_with_reqwest(octocrab::ReqwestClientConfig::Default)
             .map_err(|e| Error::GitHubApi(e.to_string()))?;
 
         Ok(Self {

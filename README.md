@@ -78,6 +78,20 @@ ryu auth github test
 ryu auth gitlab test
 ```
 
+## Proxies
+
+GitHub and GitLab API requests, including authentication checks, honor `HTTPS_PROXY`
+(or `https_proxy`). Set it to your proxy URL, for example:
+
+```sh
+export HTTPS_PROXY=http://127.0.0.1:8080
+```
+
+Use `NO_PROXY` (or `no_proxy`) to bypass the proxy for selected hosts, for example
+`NO_PROXY=localhost,127.0.0.1,github.mycompany.com`. HTTP proxy URLs support HTTPS
+requests through CONNECT tunnels. Git pushes use the underlying Git transport's
+proxy configuration.
+
 ## Usage
 
 ### Viewing your stack

@@ -2,6 +2,7 @@
 
 use crate::auth::AuthSource;
 use crate::error::{Error, Result};
+use crate::types::normalize_host;
 use std::env;
 use tokio::process::Command;
 use tracing::debug;
@@ -86,12 +87,23 @@ async fn get_gh_cli_token() -> Option<String> {
     if token.is_empty() { None } else { Some(token) }
 }
 
-/// Test GitHub authentication
+/// Test GitHub authentication against `GH_HOST`, defaulting to public GitHub.
 pub async fn test_github_auth(config: &GitHubAuthConfig) -> Result<String> {
-    let octocrab = octocrab::Octocrab::builder()
-        .personal_token(config.token.clone())
-        .build()
-        .map_err(|e| Error::GitHubApi(e.to_string()))?;
+    let octocrab = {
+        let mut builder = octocrab::Octocrab::builder().personal_token(config.token.clone());
+        if let Ok(host) = env::var("GH_HOST") {
+            let host = normalize_host(&host);
+            if !host.is_empty() && host != "github.com" {
+                builder = builder
+                    .base_uri(format!("https://{host}/api/v3"))
+                    .map_err(|e| Error::GitHubApi(e.to_string()))?;
+            }
+        }
+
+        builder
+            .build_with_reqwest(octocrab::ReqwestClientConfig::Default)
+            .map_err(|e| Error::GitHubApi(e.to_string()))?
+    };
 
     let user = octocrab
         .current()

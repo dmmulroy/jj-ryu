@@ -17,7 +17,7 @@ async fn proxy_child() {
     let mode = std::env::var("JJ_RYU_PROXY_TEST").expect("missing proxy test mode");
     let host = std::env::var("JJ_RYU_PROXY_HOST").expect("missing proxy test host");
     match mode.as_str() {
-        "github-auth" => {
+        "github-auth" | "github-auth-public" | "github-auth-public-host" => {
             let config = GitHubAuthConfig {
                 token: "proxy-test-token".to_string(),
                 source: AuthSource::EnvVar,
@@ -68,6 +68,12 @@ async fn check_proxy(variable: &str, mode: &str, bypass: bool) {
     // Isolate proxy variables without mutating the test runner's environment.
     let mut command = Command::new(std::env::current_exe().unwrap());
     command.args(["--exact", "proxy_child", "--ignored", "--nocapture"]);
+    command.env_remove("GH_HOST");
+    if mode == "github-auth" {
+        command.env("GH_HOST", format!("https://{host}/"));
+    } else if mode == "github-auth-public-host" {
+        command.env("GH_HOST", "https://github.com/");
+    }
     for name in [
         "HTTPS_PROXY",
         "https_proxy",
@@ -116,7 +122,7 @@ async fn check_proxy(variable: &str, mode: &str, bypass: bool) {
             assert!(request.len() < 8192);
         }
         let request = String::from_utf8(request).unwrap();
-        let authority = if mode == "github-auth" {
+        let authority = if matches!(mode, "github-auth-public" | "github-auth-public-host") {
             "api.github.com"
         } else {
             &host
@@ -153,6 +159,26 @@ async fn github_service_honors_https_proxy() {
 #[tokio::test]
 async fn github_auth_honors_https_proxy() {
     check_proxy("HTTPS_PROXY", "github-auth", false).await;
+}
+
+#[tokio::test]
+async fn github_auth_defaults_to_public_github() {
+    check_proxy("HTTPS_PROXY", "github-auth-public", false).await;
+}
+
+#[tokio::test]
+async fn github_auth_honors_public_gh_host() {
+    check_proxy("HTTPS_PROXY", "github-auth-public-host", false).await;
+}
+
+#[tokio::test]
+async fn github_auth_honors_lowercase_https_proxy() {
+    check_proxy("https_proxy", "github-auth", false).await;
+}
+
+#[tokio::test]
+async fn github_auth_honors_no_proxy() {
+    check_proxy("HTTPS_PROXY", "github-auth", true).await;
 }
 
 #[tokio::test]
